@@ -1,0 +1,146 @@
+using Microsoft.Data.SqlClient;
+
+namespace CaldovaNetworkScheduling.Services;
+
+public sealed record SqlWorkloadSnapshot(bool Running, int Workers, long Completed, long Failed,
+    DateTimeOffset? Started, DateTimeOffset? Finished, string? Error, int Active = 0, WorkloadRamp? Ramp = null);
+
+/// <summary>
+/// Staged load: worker i starts at i × StepUp; after Hold at peak, workers stop one per StepDown
+/// (last started stops first). Each stopping worker finishes its in-flight batch; no command is cancelled.
+/// </summary>
+public sealed record WorkloadRamp(int PeakWorkers, TimeSpan StepUp, TimeSpan Hold, TimeSpan StepDown)
+{
+    public WorkloadRamp(int peakWorkers, TimeSpan step, TimeSpan hold) : this(peakWorkers, step, hold, step) { }
+
+    public static readonly TimeSpan MaximumTotal = TimeSpan.FromMinutes(10);
+    public TimeSpan PeakAt => StepUp * (PeakWorkers - 1);
+    public TimeSpan StartAt(int worker) => StepUp * worker;
+    public TimeSpan StopAt(int worker) => PeakAt + Hold + StepDown * (PeakWorkers - 1 - worker);
+    public TimeSpan Total => StopAt(0);
+    public int ActiveAt(TimeSpan elapsed) =>
+        Enumerable.Range(0, PeakWorkers).Count(i => elapsed >= StartAt(i) && elapsed < StopAt(i));
+
+    public void Validate()
+    {
+        if (PeakWorkers is < 1 or > 16) throw new ArgumentOutOfRangeException(nameof(PeakWorkers), "Use 1-16 peak workers.");
+        if (StepUp < TimeSpan.FromSeconds(5) || StepUp > TimeSpan.FromSeconds(120)
+            || StepDown < TimeSpan.FromSeconds(5) || StepDown > TimeSpan.FromSeconds(120))
+            throw new ArgumentOutOfRangeException(nameof(StepUp), "Use 5-120 second ramp steps.");
+        if (Hold < TimeSpan.FromSeconds(15) || Hold > TimeSpan.FromMinutes(5))
+            throw new ArgumentOutOfRangeException(nameof(Hold), "Use a 15-300 second hold at peak.");
+        if (Total > MaximumTotal)
+            throw new ArgumentOutOfRangeException(nameof(StepUp), $"Ramp lasts {Total.TotalMinutes:0.#} minutes; the limit is {MaximumTotal.TotalMinutes} minutes.");
+    }
+}
+
+public sealed class ServerlessSqlWorkload(IConfiguration configuration, ILogger<ServerlessSqlWorkload> logger) : IAsyncDisposable
+{
+    public const string Query = """
+        SET NOCOUNT ON;
+        DECLARE @remaining int = 50000;
+        DECLARE @value varbinary(32) = 0x43616C646F7661;
+        WHILE @remaining > 0
+        BEGIN
+            SET @value = HASHBYTES('SHA2_256', @value);
+            SET @remaining -= 1;
+        END;
+        SELECT @value;
+        """;
+    private readonly object gate = new();
+    private CancellationTokenSource? cancellation;
+    private Task? execution;
+    private SqlWorkloadSnapshot snapshot = new(false, 0, 0, 0, null, null, null);
+    public bool Enabled => configuration.GetValue<bool>("ServerlessMonitor:EnableWorkload");
+    public SqlWorkloadSnapshot Snapshot { get { lock (gate) return snapshot; } }
+
+    public void Start(ServerlessConfiguration database, int workers, int minutes)
+    {
+        if (!Enabled) throw new InvalidOperationException("SQL load generation is disabled. Enable only for an approved, access-restricted demo.");
+        if (workers is < 1 or > 16 || minutes is < 1 or > 10)
+            throw new ArgumentOutOfRangeException(nameof(workers), "Use 1-16 workers for 1-10 minutes.");
+        Launch(database, workers, TimeSpan.FromMinutes(minutes), null);
+    }
+
+    public void StartRamp(ServerlessConfiguration database, WorkloadRamp ramp)
+    {
+        if (!Enabled) throw new InvalidOperationException("SQL load generation is disabled. Enable only for an approved, access-restricted demo.");
+        ramp.Validate();
+        // The schedule stops workers itself; the token is only a backstop for an overrunning batch.
+        Launch(database, ramp.PeakWorkers, ramp.Total + TimeSpan.FromSeconds(30), ramp);
+    }
+
+    private void Launch(ServerlessConfiguration database, int workers, TimeSpan limit, WorkloadRamp? ramp)
+    {
+        var settings = ServerlessSqlTelemetry.ConnectionSettings(configuration, database, "Caldova.ServerlessDemo");
+        lock (gate)
+        {
+            if (snapshot.Running) throw new InvalidOperationException("Stop the current workload before starting another.");
+            cancellation?.Dispose();
+            cancellation = new CancellationTokenSource(limit);
+            snapshot = new(true, workers, 0, 0, DateTimeOffset.UtcNow, null, null, 0, ramp);
+            execution = RunAsync(settings.ConnectionString, workers, ramp, cancellation.Token);
+        }
+    }
+
+    private async Task RunAsync(string connectionString, int workers, WorkloadRamp? ramp, CancellationToken token)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            await Task.WhenAll(Enumerable.Range(0, workers).Select(i =>
+                WorkerAsync(connectionString, ramp?.StartAt(i) ?? TimeSpan.Zero, ramp?.StopAt(i), clock, token)));
+        }
+        finally
+        {
+            lock (gate) snapshot = snapshot with { Running = false, Finished = DateTimeOffset.UtcNow };
+        }
+    }
+
+    private async Task WorkerAsync(string connectionString, TimeSpan startAt, TimeSpan? stopAt,
+        System.Diagnostics.Stopwatch clock, CancellationToken token)
+    {
+        var active = false;
+        try
+        {
+            var delay = startAt - clock.Elapsed;
+            if (delay > TimeSpan.Zero) await Task.Delay(delay, token);
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync(token);
+            lock (gate) snapshot = snapshot with { Active = snapshot.Active + 1 };
+            active = true;
+            while (!token.IsCancellationRequested && (stopAt is null || clock.Elapsed < stopAt))
+            {
+                using var command = new SqlCommand(Query, connection) { CommandTimeout = 15 };
+                var result = await command.ExecuteScalarAsync(token);
+                if (result is null or DBNull)
+                    throw new InvalidOperationException("The CPU calculation returned no result.");
+                lock (gate) snapshot = snapshot with { Completed = snapshot.Completed + 1 };
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (SqlException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is SqlException or InvalidOperationException)
+        {
+            logger.LogError(ex, "Measured serverless workload failed; stopping all workers without retry");
+            lock (gate) snapshot = snapshot with { Failed = snapshot.Failed + 1, Error = ex.Message };
+            cancellation?.Cancel();
+        }
+        finally
+        {
+            if (active) lock (gate) snapshot = snapshot with { Active = snapshot.Active - 1 };
+        }
+    }
+
+    public async Task StopAsync()
+    {
+        cancellation?.Cancel();
+        if (execution is not null) await execution;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await StopAsync();
+        cancellation?.Dispose();
+    }
+}
