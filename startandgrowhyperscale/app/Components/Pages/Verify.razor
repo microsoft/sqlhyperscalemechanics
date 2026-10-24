@@ -1,0 +1,49 @@
+@page "/verify"
+@inject IAppointmentAvailabilityService Availability
+@inject ILogger<Verify> Logger
+
+<PageTitle>Step 3 · Verify the Caldova pool</PageTitle>
+<section class="page-header">
+    <p class="eyebrow">Step 3 · Verify the real configuration</p>
+    <h1>Check the scheduling pool in Azure</h1>
+    <p>Use the portal to confirm the skill's result. Advancing through this page does not change or verify Azure resources.</p>
+</section>
+<section class="panel">
+    <ol class="steps">
+        <li>Use the button below to open <code>caldova-network-pool</code> directly in the Azure portal.</li>
+        <li>Confirm server <code>sql-caldova-network-0efc44</code> and resource group <code>caldova-network-rg</code>.</li>
+        <li>Confirm Caldova, Northbrook, and Ridgeview scheduling databases are all in this Hyperscale pool and online.</li>
+        <li>Caldova now uses pooled provisioned compute, not serverless. Confirm the pool capacity in the portal.</li>
+    </ol>
+    <a class="btn btn-secondary" href="https://portal.azure.com/#resource/subscriptions/0efc44aa-c965-420f-aac4-fff305dbcc97/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/sql-caldova-network-0efc44/elasticPools/caldova-network-pool/overview" target="_blank" rel="noopener noreferrer">Open pool in Azure portal</a>
+    <p>Before the next step, deploy the scheduling schema, native join view, and Entra login mappings using the setup scripts.
+        Pool membership alone does not grant database access.</p>
+</section>
+<section class="panel">
+    <h2>Check the application's read path</h2>
+    <p>This executes the cross-database view through the application's configured SQL identity. It is separate from the portal check.</p>
+    <button class="btn btn-primary" disabled="@busy" @onclick="CheckAsync">@(busy ? "Checking SQL..." : "Check cross-database reads")</button>
+    @if (message is not null) { <p role="status">@message</p> }
+    @if (error is not null) { <p class="callout callout-error" role="alert">@error</p> }
+</section>
+<div class="transport">
+    <NavLink class="btn btn-secondary" href="/network">Back · Step 2</NavLink>
+    <NavLink class="btn btn-primary" href="/appointments">Next · Step 4: search and book</NavLink>
+</div>
+@code {
+    private bool busy;
+    private string? message;
+    private string? error;
+    private async Task CheckAsync()
+    {
+        busy = true;
+        message = error = null;
+        try { message = await Availability.CheckAccessAsync(); }
+        catch (Exception ex) when (ex is Microsoft.Data.SqlClient.SqlException or InvalidOperationException)
+        {
+            Logger.LogError(ex, "Caldova cross-database read check failed");
+            error = "SQL check failed. Verify pooled placement, schema, login mappings, grants, and network access. See server logs for the full error.";
+        }
+        finally { busy = false; }
+    }
+}

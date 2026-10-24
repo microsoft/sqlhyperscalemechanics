@@ -1,0 +1,594 @@
+@page "/"
+@page "/serverless-illustration"
+@implements IAsyncDisposable
+@inject IScaleWorkload Script
+@inject ServerlessMonitor Monitor
+@inject ServerlessSqlTelemetry Telemetry
+@inject ServerlessSqlWorkload Workload
+@inject ServerlessResume Resume
+@inject NavigationManager Navigation
+@inject ILogger<Scale> Logger
+
+<PageTitle>Patient Access · Caldova</PageTitle>
+
+<section class="page-header heading-row">
+    <div>
+        <p class="eyebrow">Step 1 · Start here · Hyperscale serverless · @(scripted ? "SCRIPTED ILLUSTRATION · Not Azure telemetry" : "MEASURED · Actual SQL DMV data")</p>
+        <h1>Caldova Patient Access</h1>
+        <p>Staff sign in and get to work. The database behind them scales on its own.</p>
+    </div>
+    <div class="transport">
+        @if (Busy)
+        {
+            <span class="btn btn-secondary" aria-disabled="true">@(scripted ? "Scripted" : "Measured")</span>
+        }
+        else
+        {
+            <NavLink class="btn btn-secondary" href="/serverless-illustration" Match="NavLinkMatch.All">Scripted</NavLink>
+            <NavLink class="btn btn-secondary" href="/" Match="NavLinkMatch.All">Measured</NavLink>
+        }
+        @if (Busy)
+        {
+            <button class="btn btn-primary btn-play" @onclick="StopAsync">■ Stop</button>
+        }
+        else
+        {
+            <button class="btn btn-primary btn-play" disabled="@(!scripted && (!Workload.Enabled || resuming))" @onclick="Run">▶ Run</button>
+            @if (!scripted)
+            {
+                <button class="btn btn-secondary" disabled="@resuming" @onclick="ResumeAsync">⏻ Sign in (resume)</button>
+            }
+        }
+        <button class="btn btn-secondary" disabled="@(Busy || resuming)" @onclick="Reset">↺ Reset</button>
+    </div>
+</section>
+
+@if (scripted)
+{
+    <div class="callout callout-info">
+        <strong>Scripted illustration.</strong> Staff, activities, cores, pause, resume, and the compressed clock are all scripted.
+        This mode runs no SQL workload and does not prove that the database scaled or paused.
+    </div>
+}
+else
+{
+    <div class="callout callout-info">
+        <strong>Measured.</strong> vCores are actual <code>sys.dm_db_resource_stats</code> intervals. No generated samples.
+        Staff online equals the actual number of active SQL workers; patient names and schedule entries are illustrative
+        and advance only while SQL batches complete. A run connects to SQL: it can resume the database, incurs compute charges,
+        and keeps the database awake until cooldown ends.
+    </div>
+    @if (!Workload.Enabled) { <p class="callout callout-info">Load generation is disabled on this deployment. Enable only for an approved, access-restricted demo, or choose Scripted.</p> }
+}
+@if (snap.IsComplete)
+{
+    <div class="callout callout-done">
+        <strong>@(scripted ? "Scene complete." : "Measured run complete.")</strong>
+        @(scripted ? "Busy morning, quiet midday, auto-pause, and back online for the afternoon clinic." : "Staff signed in, SQL CPU rose, staff signed out, and measured CPU fell. Observation has stopped.")
+        Review <a href="#billing">serverless billing in Azure</a> before continuing.
+    </div>
+}
+@if (error is not null) { <p class="callout callout-error" role="alert">@error</p> }
+
+<section class="scene">
+    <div class="app-frame">
+        <div class="app-bar">
+            <div class="app-title">
+                <span class="app-logo">C</span>
+                <div>
+                    <strong>Patient Access</strong>
+                    <small>Caldova Health scheduling</small>
+                </div>
+            </div>
+            <div class="app-clock">
+                <small>@(scripted ? "Today (simulated)" : "Now (UTC)")</small>
+                <strong>@snap.SimulatedTime.ToString(scripted ? "h:mm tt" : "HH:mm:ss", CultureInfo.InvariantCulture)</strong>
+            </div>
+        </div>
+
+        <div class="online-row">
+            <span class="online-label"><strong>@snap.ActiveUsers</strong> staff online</span>
+            <div class="avatars">
+                @foreach (var u in snap.Users)
+                {
+                    <span @key="u.Id" class="avatar-sm @(snap.Status == ServerlessStatus.Resuming ? "avatar-connecting" : "")" title="@u.Label · @u.Role, @u.Location">@u.Id.ToString("00")</span>
+                }
+            </div>
+        </div>
+
+        <div class="kpis">
+            <div class="kpi kpi-booked"><span>Appointments booked</span><strong>@snap.Booked</strong></div>
+            <div class="kpi kpi-checkin"><span>Patients checked in</span><strong>@snap.CheckedIn</strong></div>
+            <div class="kpi kpi-resched"><span>Rescheduled</span><strong>@snap.Rescheduled</strong></div>
+        </div>
+
+        <div class="board">
+            <div class="board-heading">
+                <h2>Live schedule</h2>
+                <span class="muted">Newest first@(scripted ? "" : " · illustrative entries")</span>
+            </div>
+            @if (snap.Status is ServerlessStatus.Paused or ServerlessStatus.IdleAwaitingPause or ServerlessStatus.Resuming || snap.Activity.Count == 0)
+            {
+                <div class="board-empty @(snap.Status == ServerlessStatus.Resuming ? "board-resuming" : "")">
+                    @if (snap.Status == ServerlessStatus.Resuming)
+                    {
+                        <span class="spinner" aria-hidden="true"></span>
+                        <strong>@(snap.Users.FirstOrDefault()?.Label ?? "Staff") is signing in for the afternoon clinic</strong>
+                        <span>The first sign-in wakes the database, usually in under a minute.</span>
+                    }
+                    else if (snap.Status == ServerlessStatus.Paused)
+                    {
+                        <strong>Clinics are quiet</strong>
+                        <span>No one is signed in. The database has paused and resumes on the next sign-in.</span>
+                    }
+                    else if (snap.Status == ServerlessStatus.IdleAwaitingPause || snap.IsComplete)
+                    {
+                        <strong>Everyone has signed out</strong>
+                        <span>The schedule is saved. Nothing is running.</span>
+                    }
+                    else if (snap.IsRunning)
+                    {
+                        <strong>Clinics are opening</strong>
+                        <span>@(scripted ? "The first staff are signing in." : StatusDetail)</span>
+                    }
+                    else
+                    {
+                        <strong>Clinics open at 7:00 AM</strong>
+                        <span>Press Run to start the day.</span>
+                    }
+                </div>
+            }
+            else
+            {
+                <ol class="board-list">
+                    @foreach (var a in snap.Activity)
+                    {
+                        <li @key="a.Sequence" class="board-row">
+                            <time>@a.At.ToString("h:mm")</time>
+                            <span class="kind kind-@a.Kind.Replace(" ", "").ToLowerInvariant()">@a.Kind</span>
+                            <span class="patient">@a.Patient</span>
+                            <span class="svc">@a.Specialty <small>@a.Clinic</small></span>
+                            <span class="when">@a.When</span>
+                            <span class="avatar-xs" title="Staff @a.StaffId.ToString("00")">@a.StaffId.ToString("00")</span>
+                        </li>
+                    }
+                </ol>
+            }
+        </div>
+    </div>
+
+    <aside class="azure-panel status-@snap.Status.ToString().ToLowerInvariant()">
+        <div class="azure-heading">
+            <small>Behind the app</small>
+            <strong>Azure SQL Database Hyperscale</strong>
+            <span class="mono">@snap.DatabaseName · serverless</span>
+        </div>
+
+        <div class="vcore-readout">
+            <strong>@Readout</strong>
+            <span>@(scripted ? "scripted vCores (CPU)" : snap.Status == ServerlessStatus.Paused ? "paused · Azure status" : "measured vCores (CPU)")</span>
+        </div>
+        <div class="gauge" title="@F(snap.MinVCores)–@F(snap.MaxVCores) vCores">
+            <div class="gauge-fill" style="width:@F(Math.Min(100, snap.VCores / snap.MaxVCores * 100))%"></div>
+            <div class="gauge-min" style="left:@F(snap.MinVCores / snap.MaxVCores * 100)%"></div>
+        </div>
+        <div class="gauge-scale"><span>0</span><span>min @F(snap.MinVCores)</span><span>max @F(snap.MaxVCores)</span></div>
+
+        <svg class="spark" viewBox="0 0 @SW @SH" preserveAspectRatio="none" aria-label="@(scripted ? "Scripted vCore illustration, not measured compute" : "Measured SQL CPU used in average vCores")">
+            @{
+                var pause = snap.Samples.FirstOrDefault(s => s.Status == ServerlessStatus.Paused);
+                if (pause is not null)
+                {
+                    var wake = snap.Samples.FirstOrDefault(s => s.ScriptSeconds > pause.ScriptSeconds && s.Status != ServerlessStatus.Paused);
+                    var pauseEnd = wake?.ScriptSeconds ?? snap.ScriptSeconds;
+                    <rect class="spark-paused" x="@F(SX(pause.ScriptSeconds))" y="0" width="@F(SX(pauseEnd) - SX(pause.ScriptSeconds))" height="@SH" />
+                }
+            }
+            @foreach (var segment in Segments())
+            {
+                <polygon class="spark-area" points="@($"{F(SX(segment[0].ScriptSeconds))},{F(SH)} {Line(segment)} {F(SX(segment[^1].ScriptSeconds))},{F(SH)}")" />
+                <polyline class="spark-line" points="@Line(segment)" />
+            }
+            <line class="spark-max" x1="0" x2="@SW" y1="@F(SY(snap.MaxVCores))" y2="@F(SY(snap.MaxVCores))" />
+        </svg>
+
+        <div class="status-pill">
+            <span class="status-dot"></span>
+            <strong>@StatusLabel</strong>
+        </div>
+        <p class="status-detail">@(scripted ? snap.StatusDetail : StatusDetail)</p>
+        @if (scripted)
+        {
+            <p class="status-detail">Scripted curve and compressed clock; not a measurement or performance guarantee.</p>
+        }
+        else
+        {
+            <p class="status-detail">Average CPU used per ~15-second SQL interval (<code>avg_cpu_percent × cpu_limit / 100</code>);
+                not allocated or billed compute. Gaps are not filled.</p>
+        }
+    </aside>
+</section>
+
+<section class="panel" id="billing">
+    <h2>Before moving on: what did Caldova pay for?</h2>
+    <a class="btn btn-secondary" href="@Monitor.PortalUrl" target="_blank" rel="noopener noreferrer">Open Caldova database in Azure portal</a>
+    <p>Show the actual billed-compute bar chart in the portal without hovering over the numbers: online minimum,
+        above minimum with activity, back down, no compute charge during confirmed auto-pause, and billing returning after resume.
+        The app's CPU chart does not use Azure Monitor@(scripted ? ", and this illustration generates no billing evidence" : "").</p>
+    <p>Idle but online: minimum compute charges still apply. Confirmed paused intervals have no compute charges.
+        Storage and applicable backup charges continue. Missing samples are not proof of zero charges.</p>
+    <details>
+        <summary>Presenter setup · metric units, permissions, and @(scripted ? "evidence" : "raw samples")</summary>
+        <p>App CPU billed (<code>app_cpu_billed</code>, Sum) is in vCore-seconds; a workbook can divide by bucket seconds
+            for average billed vCores. CPU percentage (<code>app_cpu_percent</code>) is optional diagnostic detail.
+            Use the recorded real workload window, not the illustration's clock. Confirm pause/resume through Azure activity records.</p>
+        <p>Measured runs: SQL observation can resume the database and prevent auto-pause; it stops automatically after cooldown.
+            Close all SQL clients before waiting for auto-pause. The observing SQL identity requires <code>VIEW DATABASE STATE</code>;
+            no permission is granted automatically. SQL reports 15-second interval averages; observation is limited to 55 minutes.
+            Missing samples are not filled with zeros. A small scalar workload does not guarantee that billing equals CPU used.</p>
+        @if (!scripted)
+        {
+            <label>Peak SQL workers <input type="number" min="1" max="16" @bind="workers" disabled="@Busy" /></label>
+            <label>Ramp-up step (seconds) <input type="number" min="5" max="120" @bind="stepSeconds" disabled="@Busy" /></label>
+            <label>Hold at peak (seconds) <input type="number" min="15" max="300" @bind="holdSeconds" disabled="@Busy" /></label>
+            <label>Ramp-down step (seconds) <input type="number" min="5" max="120" @bind="stepDownSeconds" disabled="@Busy" /></label>
+            <p>@load.Completed SQL batches completed · @load.Failed failures. Each worker repeatedly hashes a scalar value in SQL
+                (no table reads or writes); no automatic retries; the first failure stops all workers.</p>
+            <table class="slots">
+                <thead><tr><th>UTC interval end</th><th>CPU % (Average)</th><th>vCore limit</th><th>CPU used (average vCores)</th></tr></thead>
+                <tbody>
+                    @foreach (var sample in samples)
+                    {
+                        <tr><td>@sample.At.UtcDateTime.ToString("HH:mm:ss", CultureInfo.InvariantCulture)</td><td>@F(sample.CpuPercent)</td><td>@F(sample.CpuLimit)</td><td>@F(sample.UsedVCores)</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </details>
+    <strong>End of Part 1.</strong>
+</section>
+
+@code {
+    [Parameter] public bool? ForceScripted { get; set; }
+
+    private enum RunPhase { Ready, Starting, Baseline, Load, Cooldown, Complete, Failed }
+    private const double SW = 300, SH = 110;
+    private static readonly TimeSpan Baseline = TimeSpan.FromSeconds(30);
+    // SQL publishes each 15-second interval after it closes, so cooldown waits long enough to capture the fall to zero.
+    private static readonly TimeSpan Cooldown = TimeSpan.FromSeconds(75);
+
+    private readonly CancellationTokenSource lifetime = new();
+    private readonly MeasuredClinicScene scene = new();
+    private bool scripted;
+    private bool disposed;
+    private ScaleSnapshot snap = default!;
+    private CancellationTokenSource? run;
+    private Task? runTask;
+    private Task? polling;
+    private Task? ticking;
+    private RunPhase phase = RunPhase.Ready;
+    private int workers = 8;
+    // Fast ramp up; slower ramp down so the one-minute portal billing bars show the decline.
+    private int stepSeconds = 15;
+    private int holdSeconds = 60;
+    private int stepDownSeconds = 45;
+    private ServerlessConfiguration? database;
+    private DateTimeOffset? runStart;
+    private TimeSpan planned = TimeSpan.FromMinutes(10);
+    private string? error;
+    private IReadOnlyList<ServerlessCpuSample> samples = [];
+    private SqlWorkloadSnapshot load = new(false, 0, 0, 0, null, null, null);
+    private string? armStatus;
+    private DateTimeOffset? armCheckedAt;
+    private bool resuming;
+    private int resumeAttempt;
+    private ResumeResult? resumed;
+    private Task? statusLoop;
+
+    private bool Busy => scripted ? snap.IsRunning : phase is RunPhase.Starting or RunPhase.Baseline or RunPhase.Load or RunPhase.Cooldown;
+
+    protected override void OnInitialized()
+    {
+        Script.Changed += OnScriptChanged;
+        ticking = TickAsync();
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender) statusLoop = AzureStatusLoopAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        var path = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?')[0].TrimEnd('/');
+        var nowScripted = ForceScripted ?? path == "serverless-illustration";
+        if (snap is not null && nowScripted != scripted)
+        {
+            Script.Reset();
+            ResetMeasured();
+        }
+        scripted = nowScripted;
+        Refresh();
+    }
+
+    private void Refresh() => snap = scripted ? Script.GetSnapshot() : scene.Snapshot(
+        Busy, phase == RunPhase.Complete, DateTimeOffset.UtcNow, runStart, planned, samples, database, StatusDetail, AzureStatus);
+
+    // Azure management status (no SQL connection) drives Paused/Resuming outside a measured run.
+    private ServerlessStatus? AzureStatus => resuming ? ServerlessStatus.Resuming
+        : Busy ? null
+        : armStatus switch
+        {
+            "Paused" or "Pausing" => ServerlessStatus.Paused,
+            "Resuming" => ServerlessStatus.Resuming,
+            _ => null,
+        };
+
+    private string Readout => scripted ? snap.VCores.ToString("0.00", CultureInfo.InvariantCulture)
+        : snap.Status == ServerlessStatus.Paused ? "0.00"
+        : samples.Count == 0 ? "–" : snap.VCores.ToString("0.00", CultureInfo.InvariantCulture);
+
+    private async Task AzureStatusLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try
+        {
+            do
+            {
+                if (scripted || Busy) continue;
+                try
+                {
+                    var current = await Monitor.ReadConfigurationAsync(lifetime.Token);
+                    armStatus = current.Status;
+                    armCheckedAt = DateTimeOffset.UtcNow;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or System.Text.Json.JsonException
+                    or Azure.Identity.AuthenticationFailedException or Azure.Identity.CredentialUnavailableException or TaskCanceledException
+                    && !lifetime.IsCancellationRequested)
+                {
+                    Logger.LogWarning(ex, "Azure status read failed");
+                    armStatus = null;
+                }
+            } while (await timer.WaitForNextTickAsync(lifetime.Token));
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        // A token request interrupted by page disposal surfaces as a credential exception; the page is closing.
+        catch (Exception ex) when (lifetime.IsCancellationRequested && ex is Azure.Identity.CredentialUnavailableException or HttpRequestException) { }
+    }
+
+    private async Task ResumeAsync()
+    {
+        if (scripted || Busy || resuming) return;
+        error = null;
+        resumed = null;
+        resumeAttempt = 0;
+        resuming = true;
+        scene.Reset();
+        scene.Update(DateTimeOffset.UtcNow, 1, 0);
+        Refresh();
+        try
+        {
+            var target = await Monitor.ReadConfigurationAsync(lifetime.Token);
+            resumed = await Resume.SignInAsync(target, attempt => resumeAttempt = attempt, lifetime.Token);
+            var current = await Monitor.ReadConfigurationAsync(lifetime.Token);
+            armStatus = current.Status;
+            armCheckedAt = DateTimeOffset.UtcNow;
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is Microsoft.Data.SqlClient.SqlException or HttpRequestException or InvalidOperationException
+            or Azure.Identity.AuthenticationFailedException or Azure.Identity.CredentialUnavailableException)
+        {
+            Logger.LogError(ex, "Resume sign-in failed");
+            error = $"Sign-in did not complete within {ServerlessResume.Deadline.TotalMinutes:0} minutes: {ex.Message}";
+            scene.Reset();
+        }
+        finally
+        {
+            resuming = false;
+            if (!lifetime.IsCancellationRequested) Refresh();
+        }
+    }
+
+    private void OnScriptChanged()
+    {
+        if (disposed || !scripted) return;
+        _ = InvokeAsync(() => { if (disposed) return; Refresh(); StateHasChanged(); });
+    }
+
+    private void Run()
+    {
+        if (scripted) { Script.Play(); Refresh(); return; }
+        if (Busy) return;
+        WorkloadRamp ramp = new(workers, TimeSpan.FromSeconds(stepSeconds), TimeSpan.FromSeconds(holdSeconds), TimeSpan.FromSeconds(stepDownSeconds));
+        try { ramp.Validate(); }
+        catch (ArgumentOutOfRangeException ex) { error = ex.Message; return; }
+        ResetMeasured();
+        phase = RunPhase.Starting;
+        runStart = DateTimeOffset.UtcNow;
+        planned = Baseline + ramp.Total + Cooldown;
+        run = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        polling = PollAsync(runStart.Value, run.Token);
+        runTask = OrchestrateAsync(ramp, run.Token);
+        Refresh();
+    }
+
+    private async Task StopAsync()
+    {
+        if (scripted) { Script.Pause(); Refresh(); return; }
+        // Stopping the workload lets the run continue into its measured cooldown.
+        await Workload.StopAsync();
+        if (phase is RunPhase.Starting or RunPhase.Baseline) run?.Cancel();
+    }
+
+    private void Reset()
+    {
+        if (Busy) return;
+        if (scripted) Script.Reset(); else ResetMeasured();
+        Refresh();
+    }
+
+    private void ResetMeasured()
+    {
+        run?.Cancel();
+        run?.Dispose();
+        run = null;
+        phase = RunPhase.Ready;
+        error = null;
+        resumed = null;
+        samples = [];
+        database = null;
+        runStart = null;
+        scene.Reset();
+    }
+
+    private async Task OrchestrateAsync(WorkloadRamp ramp, CancellationToken token)
+    {
+        try
+        {
+            while (database is null) await Task.Delay(250, token);
+            phase = RunPhase.Baseline;
+            await Task.Delay(Baseline, token);
+            Workload.StartRamp(database, ramp);
+            phase = RunPhase.Load;
+            while (Workload.Snapshot.Running) await Task.Delay(500, token);
+            if (Workload.Snapshot.Error is { } failure)
+                throw new InvalidOperationException($"SQL workload failed; no retry performed: {failure}");
+            phase = RunPhase.Cooldown;
+            await Task.Delay(Cooldown, token);
+            phase = RunPhase.Complete;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            if (phase is not RunPhase.Failed) phase = RunPhase.Ready;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Logger.LogError(ex, "Measured serverless run failed");
+            Fail(ex.Message);
+        }
+        finally
+        {
+            run?.Cancel();
+            await Workload.StopAsync();
+            if (polling is not null) await polling;
+            load = Workload.Snapshot;
+            if (!lifetime.IsCancellationRequested) await InvokeAsync(() => { Refresh(); StateHasChanged(); });
+        }
+    }
+
+    private async Task PollAsync(DateTimeOffset start, CancellationToken token)
+    {
+        try
+        {
+            database = await Monitor.ReadConfigurationAsync(token);
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+            do
+            {
+                if (DateTimeOffset.UtcNow - start > TimeSpan.FromMinutes(55))
+                    throw new InvalidOperationException("The 55-minute SQL observation window has ended. Start a new run.");
+                // Exclude the interval already in progress at start; it would include pre-run activity.
+                samples = await Telemetry.ReadAsync(database, start.AddSeconds(15), token);
+            } while (await timer.WaitForNextTickAsync(token));
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is HttpRequestException or Azure.Identity.AuthenticationFailedException
+            or Azure.Identity.CredentialUnavailableException or InvalidOperationException or System.Text.Json.JsonException
+            or KeyNotFoundException or FormatException or OperationCanceledException or Microsoft.Data.SqlClient.SqlException)
+        {
+            Logger.LogError(ex, "Serverless SQL DMV observation failed");
+            Fail($"Observation stopped: {ex.Message}. Existing samples are not live. Check Azure resource-read access, SQL identity, VIEW DATABASE STATE permission, and target configuration.");
+            run?.Cancel();
+        }
+    }
+
+    private void Fail(string message)
+    {
+        error = message;
+        phase = RunPhase.Failed;
+    }
+
+    private async Task TickAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(lifetime.Token))
+            {
+                if (scripted) continue;
+                load = Workload.Snapshot;
+                if (Busy) scene.Update(DateTimeOffset.UtcNow, load.Active, load.Completed);
+                await InvokeAsync(() => { if (disposed) return; Refresh(); StateHasChanged(); });
+            }
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+    }
+
+    private string StatusLabel => snap.Status switch
+    {
+        ServerlessStatus.Active => "Active",
+        ServerlessStatus.IdleAwaitingPause => "Idle",
+        ServerlessStatus.Paused => "Paused",
+        ServerlessStatus.Resuming => "Resuming",
+        _ => "Online",
+    };
+
+    private string StatusDetail => resuming
+        ? $"First sign-in is waking the database · attempt {resumeAttempt}, retrying automatically"
+        : phase switch
+    {
+        RunPhase.Ready or RunPhase.Complete when !Busy && AzureStatus == ServerlessStatus.Paused =>
+            $"Paused · no compute charges · Azure status checked {armCheckedAt:HH:mm:ss} UTC",
+        RunPhase.Ready when resumed is { } r =>
+            $"First sign-in completed in {r.Elapsed.TotalSeconds:0.#} s · database {armStatus ?? "status unknown"} (Azure status)",
+        RunPhase.Ready => armStatus is null ? "Waiting for the first sign-in" : $"Azure status: {armStatus} · checked {armCheckedAt:HH:mm:ss} UTC",
+        RunPhase.Starting => "Connecting to SQL and reading the database configuration",
+        RunPhase.Baseline => "Quiet baseline before staff sign in",
+        RunPhase.Load when load.Ramp is { } r && load.Started is { } s => RampStatus(r, DateTimeOffset.UtcNow - s),
+        RunPhase.Load => $"{load.Active} SQL workers active",
+        RunPhase.Cooldown => "Everyone has signed out · measuring CPU falling",
+        RunPhase.Complete => "Run complete · observation stopped; the database can auto-pause later",
+        _ => "Stopped on an error; samples shown are retained, not live",
+    };
+
+    private string RampStatus(WorkloadRamp ramp, TimeSpan elapsed)
+    {
+        var label = elapsed < ramp.PeakAt ? "Staff signing in"
+            : elapsed < ramp.StopAt(ramp.PeakWorkers - 1) ? "Busy clinic" : "Staff signing out";
+        return $"{label} · {load.Active} of {ramp.PeakWorkers} SQL workers active";
+    }
+
+    private IEnumerable<ScaleSample[]> Segments()
+    {
+        var current = new List<ScaleSample>();
+        foreach (var sample in snap.Samples)
+        {
+            // Measured samples arrive about every 15 seconds; a larger gap is missing data, not zero.
+            if (current.Count > 0 && sample.ScriptSeconds - current[^1].ScriptSeconds > (scripted ? 5 : 25))
+            {
+                if (current.Count > 1) yield return current.ToArray();
+                current.Clear();
+            }
+            current.Add(sample);
+        }
+        if (current.Count > 1) yield return current.ToArray();
+    }
+
+    private string Line(ScaleSample[] segment) => string.Join(' ', segment.Select(s => $"{F(SX(s.ScriptSeconds))},{F(SY(s.VCores))}"));
+    private double SX(double seconds) => Math.Clamp(seconds / snap.TotalScriptSeconds, 0, 1) * SW;
+    private double SY(double vCores) => SH - vCores / (snap.MaxVCores * 1.15) * (SH - 4);
+    private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        Script.Changed -= OnScriptChanged;
+        Script.Pause();
+        lifetime.Cancel();
+        if (runTask is not null) await runTask;
+        await Workload.StopAsync();
+        if (ticking is not null) await ticking;
+        if (statusLoop is not null) await statusLoop;
+        run?.Dispose();
+        lifetime.Dispose();
+    }
+}
