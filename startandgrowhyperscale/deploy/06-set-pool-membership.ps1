@@ -47,7 +47,7 @@ Write-Step "Preflight: $Mode on $SqlServerFqdn (subscription $SubscriptionId)"
 $pool = Invoke-Az @('sql', 'elastic-pool', 'show', '--subscription', $SubscriptionId,
     '--resource-group', $ResourceGroup, '--server', $SqlServerName, '--name', $ElasticPoolName, '--output', 'json')
 $expectedPoolId = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Sql/servers/$SqlServerName/elasticPools/$ElasticPoolName"
-if ($pool.id -ne $expectedPoolId -or $pool.sku.tier -ne 'Hyperscale' -or $pool.state -ne 'Ready') {
+if ($pool.id -ne $expectedPoolId -or $pool.sku.tier -ne 'Hyperscale' -or $pool.sku.family -ne 'Gen5' -or $pool.state -ne 'Ready') {
     throw "Expected the existing, Ready Hyperscale pool $expectedPoolId; received id '$($pool.id)', tier '$($pool.sku.tier)', state '$($pool.state)'. No databases were changed."
 }
 
@@ -55,7 +55,9 @@ $databases = @{}
 foreach ($target in $targets) {
     $database = Get-DemoDatabase $target.Name
     $expectedDatabaseId = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Sql/servers/$SqlServerName/databases/$($target.Name)"
-    if ($database.id -ne $expectedDatabaseId -or $database.sku.tier -ne 'Hyperscale' -or $database.sku.family -ne 'Gen5') {
+    # ARM reports pooled databases as sku 'ElasticPool' with no family; they inherit the pool's Gen5.
+    $family = if ($database.elasticPoolId -eq $pool.id) { $pool.sku.family } else { $database.sku.family }
+    if ($database.id -ne $expectedDatabaseId -or $database.sku.tier -ne 'Hyperscale' -or $family -ne 'Gen5') {
         throw "Expected Hyperscale Gen5 database $expectedDatabaseId. No databases were changed."
     }
     if ($database.elasticPoolId -and $database.elasticPoolId -ne $pool.id) {

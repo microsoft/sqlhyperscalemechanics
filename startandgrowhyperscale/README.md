@@ -465,7 +465,8 @@ Verified against Microsoft Learn on 2026-10-15:
 - Moving a database into a Hyperscale elastic pool requires matching zone-redundancy and backup
   storage redundancy settings
   ([Hyperscale elastic pools](https://learn.microsoft.com/azure/azure-sql/database/hyperscale-elastic-pool-overview)).
-- Native cross-database private preview (onboarding supplied 2026-10-21): three-part
+- Native cross-database private preview (onboarding supplied 2026-10-21; guide saved in
+  [docs/crossdb-private-preview.md](docs/crossdb-private-preview.md)): three-part
   names across online databases on the same logical server and supported elastic pool.
   Microsoft Entra authentication requires a server login and users mapped from that
   login in each database, with object permissions in each. Reads can span databases;
@@ -552,6 +553,8 @@ Azure layout for measured mode (all in `caldova-network-rg`, deployed by `04-dep
 - `northbrook-scheduling` (provisioned `HS_Gen5_2`), `ridgeview-scheduling` (provisioned
   `HS_Gen5_4`).
 - `caldova-network-pool` — Hyperscale elastic pool, 8 vCores, created empty.
+- Part 1 server `sql-caldova-start-0efc44` with its own serverless `caldova-scheduling`
+  (deployed by `09-deploy-part1-sql.ps1`; see [Separate Part 1 serverless database](#separate-part-1-serverless-database)).
 - Every database and the pool use **Local** backup storage redundancy and **no** zone redundancy,
   so the databases can move into the pool later.
 - App will connect passwordless with its system-assigned managed identity, using an
@@ -570,7 +573,7 @@ Remaining work and presentation options.
 | 1 | **Rehearse Copilot-assisted sizing/deployment** | The Start and Grow skill defines requirements, recommendation, change summary, and approval. Verify supported sizing and exact deployment scope; the current SQL provisioner creates all databases and a pool, not just Caldova. |
 | 2 | **Enable auto-pause live in the Azure portal** | Show auto-pause being turned on in the portal instead of setting it at create time. `04-deploy-sql.ps1` currently creates `caldova-scheduling` with `--auto-pause-delay 60`; change it to create with auto-pause off when this lands. Hyperscale auto-pause is preview with a 60-minute minimum delay. |
 | 3 | **Live serverless verification** | Measured source path implemented; approve monitoring permissions/load and prove actual rise/fall, sample delay, and agreement with Azure Monitor before publishing/presenting. |
-| 4 | **Live native cross-database verification** | Code and SQL setup are implemented. Deploy schema/login mappings/view and prove managed-identity search and one-provider booking on the enabled pool before publishing. |
+| 4 | **Live native cross-database verification** | **Blocked (2026-10-24).** Schema is deployed in all three databases (Ridgeview was missing it). With all three Online in `caldova-network-pool`, three-part names fail with Msg 40515 and `SUSER_SID('<name>')` fails with Msg 40507 in user databases, so the preview is not active for this server/pool. Ask the preview team to enable or re-check `sql-caldova-network-0efc44` / `caldova-network-pool`, then run `07-deploy-scheduling.ps1 -Phase Network` and `-Phase Verify` while pooled. Databases were returned to standalone. |
 | 5 | **Independent Start/Grow chapters** | Part 1 now ends independently; chapter entry/navigation grouping remains to implement, preserving routes and telemetry/SQL disclosures. |
 | 6 | **Pool scaling under workload** | Implement an approved capacity change on the existing pool, bounded workload, and measured transition/workload behavior. Connection retry handling is a talking point only; no new retry logic, instrumentation, or tests. Preserve existing booking behavior. |
 | 7 | **Measured database growth** | Add bounded approved synthetic inserts and measured data-space-used growth within the workload flow, with fixed compute and scoped cleanup. No separate storage/I/O checkpoint page. Not yet implemented. |
@@ -636,8 +639,31 @@ Do not run it during pool moves or without approval for the write.
 
 ```powershell
 cd app
-dotnet run --launch-profile http   # http://localhost:5191
+dotnet run --launch-profile http    # http://localhost:5191, Part 2 server
+dotnet run --launch-profile part1   # http://localhost:5099, Part 1 server, measured load enabled
 ```
+
+### Separate Part 1 serverless database
+
+Part 1 needs Caldova serverless and able to auto-pause; Part 2 needs Caldova in the
+pool. To keep them from interfering, Part 1 runs against its own logical server,
+`sql-caldova-start-<suffix>`, with a database of the same name, `caldova-scheduling`
+(serverless 1-8 vCores, 60-minute auto-pause, Entra-only). The `part1` launch profile
+overrides `ConnectionStrings__Scheduling` and `ServerlessMonitor__ResourceId`; no code
+changes. The Part 1 workload and telemetry use only DMVs, so this database has no
+schema. Steps 2-4 of the app are not used with this profile.
+
+```powershell
+.\deploy\09-deploy-part1-sql.ps1 -WhatIf                                  # plan only
+.\deploy\09-deploy-part1-sql.ps1 -ClientIp <presenter-ip> [-AllowAzureServices]
+```
+
+This is the on-camera deployment in Beat 1.2 (the skill runs it after approval).
+`-MinVCores`, `-MaxVCores`, and `-AutoPauseDelay` override the config defaults
+(1, 8, 60). The script is idempotent and verifies the result. Use
+`-AllowAzureServices` when presenting from an
+Azure-hosted machine whose outbound IP changes per connection. It sets the
+`PresenterClient` firewall rule to `-ClientIp` (or this machine's current IP).
 
 ## Deploy to Azure App Service
 

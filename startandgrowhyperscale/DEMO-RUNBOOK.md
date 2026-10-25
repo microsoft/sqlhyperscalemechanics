@@ -14,7 +14,7 @@ controls have already been implemented.
 
 | Capability | Current source baseline / required proof |
 |---|---|
-| Copilot sizing/deployment | Skill defines the interview and change summary. Rehearse supported sizing and the exact deployment scope; the current SQL provisioner creates all databases and an empty pool. |
+| Copilot sizing/deployment | Skill interviews, recommends serverless Hyperscale 1-8 vCores, and deploys the Part 1 server/database with `deploy\09-deploy-part1-sql.ps1` (`-WhatIf` plan, then apply). Script plan verified 2026-10-24; not yet run on camera. |
 | Independent chapter navigation | Not yet implemented; existing routes are mapped below. |
 | Serverless Patient Access | Published illustration passed the Edge 1 -> 4 -> 1 -> pause -> resume cycle. Current app uses SQL DMV CPU samples and a staged 0 -> 8 -> 0 worker ramp; published 2026-10-23 with load generation disabled. Harness ramp measured 0 -> 6.94 -> 0 vCores with no failures (6-7 accepted); app-page ramp not yet run live. Actual billing/pause/resume history is captured; portal rehearsal and deployed SQL identity verification remain. SQL load generation is disabled. |
 | Pool membership | Canonical script/skill implemented; verify current live state before each run. |
@@ -63,29 +63,58 @@ manages. This beat creates nothing.
 
 ### Beat 1.2 - Copilot-assisted sizing and deployment
 
-**Say:** "Copilot in VS Code can use our SQL deployment skill to ask the right
-questions and prepare a recommendation and change summary."
+**Say:** "That's a lot of choices. Instead, I'll switch to VS Code. GitHub Copilot
+uses our deployment skill to ask about my requirements, recommend a
+configuration, and deploy it with scripts and the Azure CLI."
 
 **Do:** Show the workspace
 [skill](../.github/skills/start-and-grow-hyperscale-demo/SKILL.md).
 Use this prompt:
 
-> Help me size and prepare a Hyperscale deployment for Caldova Patient Access.
-> Ask me for the missing requirements, recommend a configuration, and prepare
-> a change-management summary. Do not deploy until I approve the exact plan.
+> Help me size and deploy a Hyperscale database for Caldova Patient Access.
+> Ask me for the missing requirements, recommend a configuration, and show me
+> a change summary. Don't deploy until I approve the exact plan.
 
-Gather workload, growth, activity/idle pattern, warm-up tolerance, availability,
-network/auth, region, and budget requirements. Explain the recommended min/max
-range. Show inputs, assumptions, recommendation/rationale, target resources,
-cost source if available, verification, and rollback limits before approval.
-Do not present the existing 1-8 vCore demo range as a measured sizing result.
+Answer Copilot's questions with these requirements (say them in your own words):
 
-**Prove:** Approved choices match the deployed configuration. If deploying live,
-the plan must identify the exact resources the selected script will create.
-Do not rerun the full environment provisioner just to demonstrate one database.
-Otherwise explicitly show an existing deployment rather than claim a new one.
-Verify that the intended GitHub branch contains the skill before showing its
-repository URL on camera.
+| Topic | Requirement to say |
+|---|---|
+| Workload | Clinic staff sign in to schedule and check in patients. Busy weekday mornings, light in the afternoon. |
+| Peak | We don't know the exact peak yet. It should scale up on its own for the morning rush; we don't want to pay for peak all day. |
+| Idle | Nights and weekends nobody uses it. |
+| Warm-up | A short wait for the first sign-in after a quiet period is fine. |
+| Data | Starts small, grows as we add clinics. I don't want to size storage. |
+| Region | East US 2. |
+| Availability | Pilot: no zone redundancy, local backup redundancy. |
+| Security | Microsoft Entra only; no SQL passwords. |
+| Budget | Lowest possible cost when idle. |
+
+Copilot's recommendation, and why:
+
+| Choice | Value | Reason |
+|---|---|---|
+| Service tier | Hyperscale | Storage grows automatically; no size to pick. Can join a Hyperscale elastic pool later. |
+| Compute | Serverless, `HS_S_Gen5_8` | Intermittent use; billed per second for what is used. |
+| vCore range | 1-8 | Max 8 is headroom for an unknown morning peak. Min 1 is the lowest minimum Azure allows with a max of 8 (verified with the regional capability API), so idle-but-online cost is as low as possible. |
+| Auto-pause | 60 minutes | Nights and weekends. 60 minutes is the Hyperscale minimum; Hyperscale auto-pause is preview. |
+| Redundancy | Local backups, no zone redundancy | Pilot requirement; also matches the pool Caldova joins in Part 2. |
+| Auth | Entra-only | Requirement. |
+
+Copilot then shows the change summary by running:
+
+```powershell
+.\startandgrowhyperscale\deploy\09-deploy-part1-sql.ps1 -WhatIf
+```
+
+After you approve, it runs the same command without `-WhatIf` (add `-ClientIp <presenter-ip>`
+and, on an Azure-hosted presenting machine, `-AllowAzureServices`). It creates
+`sql-caldova-start-0efc44` and `caldova-scheduling`, then verifies the result.
+Creation takes a few minutes; time-lapse with disclosure.
+
+**Prove:** The verified result matches the approved plan (`HS_S_Gen5_8`, min 1,
+auto-pause 60). Do not claim the 1-8 range came from measurement; it is a
+starting point that Beat 1.3 then observes. Verify that the intended GitHub
+branch contains the skill before showing its repository URL on camera.
 
 ### Beat 1.3 - Caldova Patient Access (current app Step 1, `/`)
 

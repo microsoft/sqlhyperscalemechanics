@@ -34,7 +34,7 @@ function Reset-Fixture {
             currentServiceObjectiveName = $(if ($Pooled) { 'ElasticPool' } else { $objectives[$i] })
             status = 'Online'; minCapacity = 1; autoPauseDelay = 60
             zoneRedundant = $false; requestedBackupStorageRedundancy = 'Local'
-            sku = @{ tier = 'Hyperscale'; family = 'Gen5' }
+            sku = @{ tier = 'Hyperscale'; family = $(if ($Pooled) { $null } else { 'Gen5' }) }
         }
     }
 }
@@ -71,6 +71,7 @@ function az {
             Assert-True ($database.currentServiceObjectiveName -notlike 'HS_S_*') 'Serverless must be converted before pooling'
             $database.elasticPoolId = $poolId
             $database.currentServiceObjectiveName = 'ElasticPool'
+            $database.sku.family = $null
         }
         else {
             $index = [Array]::IndexOf($arguments, '--service-objective')
@@ -85,6 +86,7 @@ function az {
             }
             $database.elasticPoolId = $null
             $database.currentServiceObjectiveName = $objective
+            $database.sku.family = 'Gen5'
         }
         $database.status = 'Online'
     }
@@ -157,7 +159,7 @@ try {
     Assert-True ($script:fixture.Updates.Count -eq 0) 'Repeated standalone operation must not resume a paused database'
     $passed++
 
-    foreach ($fault in @('OtherPool', 'WrongDatabaseId', 'WrongTier', 'ZoneMismatch', 'BackupMismatch', 'Busy', 'WrongPoolId')) {
+    foreach ($fault in @('OtherPool', 'WrongDatabaseId', 'WrongTier', 'ZoneMismatch', 'BackupMismatch', 'Busy', 'WrongPoolId', 'WrongPoolFamily')) {
         Reset-Fixture
         $database = $script:fixture.Databases[$names[2]]
         switch ($fault) {
@@ -168,6 +170,7 @@ try {
             'BackupMismatch' { $database.requestedBackupStorageRedundancy = 'Geo' }
             'Busy' { $database.status = 'Scaling' }
             'WrongPoolId' { $script:fixture.Pool.id = "$serverId/elasticPools/unrelated" }
+            'WrongPoolFamily' { $script:fixture.Pool.sku.family = 'PRMS' }
         }
         Invoke-ExpectedFailure Pooled '*No databases were changed*'
         Assert-True ($script:fixture.Updates.Count -eq 0) "$fault must fail before any update"
