@@ -54,6 +54,13 @@ labeled 70-second illustration (no SQL) if a live take fails.
 
 ## Part 2 - Grow without redesigning
 
+**Backup clips:** if live cross-database queries are still unavailable, use the
+scripted MP4 clips of each app sequence (see
+[Playback mode and backup clips](README.md#playback-mode-and-backup-clips)). They
+are the real app in playback mode: same pages, clicks, and on-screen SQL, with
+in-memory data and no Azure. Record the Azure portal and Copilot parts live, and
+disclose in narration that the app segments are scripted.
+
 Can be recorded in a separate session. Do not run Part 1's measured mode while
 the databases are pooled.
 

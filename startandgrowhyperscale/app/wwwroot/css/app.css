@@ -62,7 +62,7 @@ code, .mono { font-family: "Cascadia Mono", "Consolas", monospace; font-size: 0.
 .topnav { display: flex; gap: 0.3rem; flex: 1; }
 .nav-item {
     text-decoration: none; border-radius: 8px; padding: 0.45rem 0.75rem;
-    color: #d9eeea; border: 1px solid transparent; font-weight: 650;
+    color: #d9eeea; border: 1px solid transparent; font-weight: 650; white-space: nowrap;
 }
 .nav-item.active, .nav-item:hover { background: #fff; color: var(--navy); }
 .nav-step {
@@ -339,3 +339,26 @@ code, .mono { font-family: "Cascadia Mono", "Consolas", monospace; font-size: 0.
 @media (max-width: 1100px) {
     .scene, .integration-layout, .appointments-layout, .provider-grid { grid-template-columns: 1fr; }
 }
+
+/* Playback: Scale & Grow page */
+.pool-board { display: grid; grid-template-columns: minmax(260px, 1fr) 3fr; gap: 16px; margin-bottom: 16px; }
+.pool-capacity { display: flex; flex-direction: column; gap: 8px; }
+.pool-vcores { display: flex; align-items: baseline; gap: 10px; font-size: 3rem; font-weight: 700; color: var(--accent-strong); }
+.pool-vcores small { font-size: 1rem; font-weight: 500; color: var(--muted); }
+.pool-arrow { color: var(--gold); }
+.pool-state-preparing .status-dot { background: var(--gold); }
+.pool-state-switching .status-dot { background: var(--coral); }
+.pool-chart { width: 100%; height: 180px; background: var(--bg); border-radius: var(--radius); margin-top: 12px; }
+.pool-line { fill: none; stroke: var(--accent); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.pool-fail { fill: var(--coral); }
+.pool-band-preparing { fill: rgba(197, 138, 22, 0.14); }
+.pool-band-switching { fill: rgba(208, 93, 78, 0.22); }
+.pool-bar-cell { width: 30%; }
+.pool-bar { height: 10px; background: var(--bg); border-radius: 5px; overflow: hidden; }
+.pool-bar div { height: 100%; background: var(--blue); transition: width 0.9s linear; }
+.pool-loading .pool-bar div { background: var(--violet); }
+.pool-events { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.pool-events li { padding: 6px 10px; border-left: 4px solid var(--line); background: var(--bg); border-radius: 4px; }
+.pool-events time { font-family: ui-monospace, monospace; color: var(--muted); margin-right: 8px; }
+.pool-event-warn { border-left-color: var(--coral) !important; }
+.pool-event-done { border-left-color: var(--ok) !important; }

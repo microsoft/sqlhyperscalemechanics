@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @inject NavigationManager Navigation
+@inject IConfiguration Configuration
 
 <div class="shell">
     <header class="topbar">
@@ -12,6 +13,10 @@
             <NavLink href="/" Match="NavLinkMatch.All" class="nav-item"><span class="nav-step">1</span>Patient Access</NavLink>
             <NavLink href="/network" class="nav-item"><span class="nav-step">2</span>Acquisitions</NavLink>
             <NavLink href="/verify" class="nav-item"><span class="nav-step">3</span>Verify Pool</NavLink>
+            @if (Configuration.GetValue<bool>("Demo:Playback"))
+            {
+                <NavLink href="/pool" class="nav-item"><span class="nav-step">3b</span>Scale &amp; Grow</NavLink>
+            }
             <NavLink href="/appointments" class="nav-item"><span class="nav-step">4</span>Search &amp; Book</NavLink>
         </nav>
         <div class="topbar-right">
