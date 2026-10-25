@@ -370,6 +370,8 @@ else
         {
             var target = await Monitor.ReadConfigurationAsync(lifetime.Token);
             resumed = await Resume.SignInAsync(target, attempt => resumeAttempt = attempt, lifetime.Token);
+            // A sign-in after a finished run starts a new session; the run's chart samples are kept.
+            if (phase is RunPhase.Complete) phase = RunPhase.Ready;
             var current = await Monitor.ReadConfigurationAsync(lifetime.Token);
             armStatus = current.Status;
             armCheckedAt = DateTimeOffset.UtcNow;

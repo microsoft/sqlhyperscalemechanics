@@ -22,6 +22,9 @@ $script:AppUrl = "https://$AppName.azurewebsites.net"
 $script:SqlLocation = if ($env:CALDOVA_NETWORK_SQL_LOCATION) { $env:CALDOVA_NETWORK_SQL_LOCATION } else { 'eastus2' }
 $script:SqlServerName = if ($env:CALDOVA_NETWORK_SQL_SERVER) { $env:CALDOVA_NETWORK_SQL_SERVER } else { "sql-caldova-network-$defaultSuffix" }
 $script:SqlServerFqdn = "$SqlServerName.database.windows.net"
+# Part 1 uses its own server with the same database name, so its auto-pause cycle never conflicts with Part 2 pool moves.
+$script:Part1SqlServerName = if ($env:CALDOVA_PART1_SQL_SERVER) { $env:CALDOVA_PART1_SQL_SERVER } else { "sql-caldova-start-$defaultSuffix" }
+$script:Part1SqlServerFqdn = "$Part1SqlServerName.database.windows.net"
 $script:ElasticPoolName = 'caldova-network-pool'
 $script:ElasticPoolVCores = 8
 $script:CaldovaDatabase = 'caldova-scheduling'

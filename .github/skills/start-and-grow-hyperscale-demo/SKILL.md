@@ -79,11 +79,18 @@ At the end of Part 1, stop; do not automatically start Part 2.
      The repository is private; confirm the intended branch, that it is
      published, and that it is acceptable on camera before showing the link;
      do not imply uncommitted local changes are already on GitHub.
-   - Before deployment, show the exact plan and obtain approval. Read each
-     deployment script first: the current SQL provisioner creates all three
-     databases plus an empty pool, not just the first Caldova database.
-     Do not call that a single-database-only deployment or silently run the
-     broader setup on stage. Add a scoped path if that is the approved goal.
+   - Before deployment, show the exact plan and obtain approval. The Part 1
+     deployment is `deploy\09-deploy-part1-sql.ps1`: run it with `-WhatIf` to
+     show the plan (server `sql-caldova-start-*`, database `caldova-scheduling`,
+     `HS_S_Gen5_8` 1-8 vCores, auto-pause 60, Entra-only, local backups, no zone
+     redundancy, firewall), then run it without `-WhatIf` after Bob approves.
+     Ask for the presenter IP (`-ClientIp`) and whether the presenting machine
+     is Azure-hosted (`-AllowAzureServices`). Never use `04-deploy-sql.ps1` for
+     this beat; it creates the Part 2 server, three databases, and a pool.
+   - The runbook's Beat 1.2 lists the requirements Bob will give and the
+     recommendation they lead to. Derive the recommendation from his answers and
+     the capability limits (with max 8 vCores the lowest allowed minimum is 1);
+     if his answers differ, say how the recommendation changes.
 4. Separate the app's chapter entry points and navigation without losing the
    existing routes or telemetry/SQL disclosures. Part 1 must end independently;
    Part 2 must be directly accessible after its own preflight.
@@ -281,9 +288,10 @@ permission to delete or recreate resources.
    be enabled for the private preview; ARM membership does not prove preview
    enablement or SQL permissions.
 2. State the subscription, server, pool, and three database names and current
-   compute. Explain the compute change, possible connection interruptions, and
-   that pooled Caldova disables Part 1's measured mode until Standalone is
-   restored. Ask for plain-text approval and wait. Stop dependent app/workload
+   compute. Explain the compute change and possible connection interruptions.
+   Part 1 measured mode runs against the separate Part 1 server
+   (`sql-caldova-start-*`, launch profile `part1`), so pool moves on the Part 2
+   server do not affect it. Ask for plain-text approval and wait. Stop dependent app/workload
    traffic first; cross-database traffic must not run while databases are split
    across pool boundaries.
 3. Apply exactly the approved direction without `-WhatIf`, synchronously, one
