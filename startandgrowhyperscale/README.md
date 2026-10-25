@@ -77,6 +77,9 @@ The table describes the original standalone baseline. Use `05-verify-sql.ps1`
 or the Azure portal for current placement. Source changes are not automatically
 published to the live app.
 
+Scripted backup clips of every app sequence come from playback mode; see
+[Playback mode and backup clips](#playback-mode-and-backup-clips).
+
 ## Pages
 
 The top navigation is numbered in story order.
@@ -634,6 +637,35 @@ winner and that the slot disappears from availability. **This commits one
 synthetic booking and leaves it booked.** It uses `ConnectionStrings__Scheduling`
 from the environment and requires the intended test identity's permissions.
 Do not run it during pool moves or without approval for the write.
+
+## Playback mode and backup clips
+
+`dotnet run --launch-profile playback` (`http://localhost:5096`) runs the same app with every
+Azure and SQL dependency replaced by in-memory stand-ins
+([Services/Playback](app/Services/Playback)). Pages, clicks, and on-screen SQL are unchanged:
+
+- **Patient Access:** the measured run, auto-pause (60 s after the run instead of 60 min), and
+  resume are driven by a scripted database whose CPU curve follows the 2026-10-25 measured run.
+- **Verify / Search & Book:** in-memory slots seeded like `sql\01-scheduling-schema.sql`; the
+  view, query, and booking SQL shown are the real ones; a second booking of a taken slot is rejected.
+- **Scale & Grow (`/pool`, playback only):** scripted network workload, an online pool scale
+  8 → 16 vCores with a brief switch-over, and Northbrook history inserts growing storage
+  while compute stays fixed. This beat is not built in live mode.
+
+The playback mode shows no on-screen marker. Disclose in narration that these segments are scripted.
+
+[tools/playback-recorder](tools/playback-recorder) records each sequence to its own
+1920×1080 MP4 (125% zoom, visible pointer and click ripples) using your installed Edge:
+
+```powershell
+cd app; dotnet run --launch-profile playback          # terminal 1
+cd tools\playback-recorder; npm install; node record.mjs   # terminal 2
+```
+
+Clips land in `tools\playback-recorder\clips` (gitignored): `p1-run`, `p1-paused`,
+`p1-resume`, `p2-acquisitions`, `p2-verify`, `p2-scale`, `p2-growth`, `p2-search-book`.
+Pass clip names to record a subset; `p2-growth` continues `p2-scale`. Restart the app
+between full recordings to reset bookings and pool state.
 
 ## Run locally
 

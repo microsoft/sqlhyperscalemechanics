@@ -342,6 +342,23 @@ foreach (var invalid in new WorkloadRamp[] { new(0, TimeSpan.FromSeconds(30), Ti
     catch (ArgumentOutOfRangeException) { checks++; }
 }
 
+var playback = new CaldovaNetworkScheduling.Services.Playback.PlaybackAppointmentAvailabilityService();
+var caldovaOnly = await playback.FindNextAsync("Cardiology", networkWide: false);
+var network = await playback.FindNextAsync("Cardiology", networkWide: true);
+Check(caldovaOnly.QueryText == SqlAppointmentAvailabilityService.LocalQuery && network.QueryText == SqlAppointmentAvailabilityService.NetworkQuery
+    && playback.ViewDefinition == SqlAppointmentAvailabilityService.ViewSql, "Playback shows the live query and view SQL");
+Check(caldovaOnly.Slots.All(s => s.ProviderKey == "caldova") && network.Slots[0].ProviderKey == "ridgeview"
+    && network.Slots[0].SourceObject == "[ridgeview-scheduling].dbo.AppointmentSlot"
+    && (network.Slots[0].SlotStart.Date - DateTime.UtcNow.Date).Days == 2
+    && (caldovaOnly.Slots[0].SlotStart.Date - DateTime.UtcNow.Date).Days == 19,
+    "Playback seeds match the schema script: Caldova Cardiology +19 days, Ridgeview +2 days");
+var firstBooking = await playback.BookAsync("ridgeview", network.Slots[0].SlotId);
+var secondBooking = await playback.BookAsync("ridgeview", network.Slots[0].SlotId);
+Check(firstBooking.Booked && !secondBooking.Booked && firstBooking.QueryText == SqlAppointmentAvailabilityService.GetBookingQuery("ridgeview"),
+    "Playback booking is conditional and shows the live booking SQL");
+Check((await playback.FindNextAsync("Cardiology", true)).Slots.All(s => s.SlotId != network.Slots[0].SlotId || s.ProviderKey != "ridgeview"),
+    "A booked playback slot leaves availability");
+
 Console.WriteLine($"PASS: {checks} query-contract and component-rendering checks (no SQL connections).");
 if (args.Contains("--live"))
 {

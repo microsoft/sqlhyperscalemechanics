@@ -6,7 +6,7 @@ namespace CaldovaNetworkScheduling.Services;
 
 public sealed class SqlAppointmentAvailabilityService(IConfiguration configuration) : IAppointmentAvailabilityService
 {
-    private const string LocalQuery = """
+    public const string LocalQuery = """
         SELECT TOP (10) p.ProviderKey, p.ProviderName, s.SlotId,
                p.Location, s.Clinician, s.Specialty, s.SlotStart, s.DurationMinutes
         FROM network.ProviderClinic AS p
@@ -17,7 +17,7 @@ public sealed class SqlAppointmentAvailabilityService(IConfiguration configurati
         ORDER BY s.SlotStart, s.SlotId;
         """;
 
-    private const string NetworkQuery = """
+    public const string NetworkQuery = """
         SELECT TOP (10) ProviderKey, ProviderName, SlotId, Location,
                Clinician, Specialty, SlotStart, DurationMinutes
         FROM network.AppointmentAvailability
@@ -30,7 +30,7 @@ public sealed class SqlAppointmentAvailabilityService(IConfiguration configurati
         ["Cardiology", "Orthopedics", "Pediatrics", "Primary Care", "Dermatology"];
 
     public string ViewDefinition => ViewSql;
-    private static readonly string ViewSql = LoadViewSql();
+    public static readonly string ViewSql = LoadViewSql();
 
     private static string LoadViewSql()
     {

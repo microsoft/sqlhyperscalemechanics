@@ -11,9 +11,9 @@ public sealed record ServerlessCpuSample(DateTimeOffset At, double CpuPercent, d
         : throw new InvalidOperationException("SQL returned an invalid CPU percentage or vCore limit.");
 }
 
-public sealed class ServerlessSqlTelemetry(IConfiguration configuration)
+public class ServerlessSqlTelemetry(IConfiguration configuration)
 {
-    public async Task<IReadOnlyList<ServerlessCpuSample>> ReadAsync(
+    public virtual async Task<IReadOnlyList<ServerlessCpuSample>> ReadAsync(
         ServerlessConfiguration database, DateTimeOffset from, CancellationToken token)
     {
         var settings = ConnectionSettings(configuration, database, "Caldova.ServerlessTelemetry");

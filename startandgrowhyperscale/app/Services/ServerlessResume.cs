@@ -8,7 +8,7 @@ public sealed record ResumeResult(TimeSpan Elapsed, int Attempts, DateTimeOffset
 /// First sign-in after auto-pause. Opens one read-only connection and retries known transient errors
 /// (for example 40613 while the database resumes) with backoff. The query only reads; retrying is safe.
 /// </summary>
-public sealed class ServerlessResume(IConfiguration configuration, ILogger<ServerlessResume> logger)
+public class ServerlessResume(IConfiguration configuration, ILogger<ServerlessResume> logger)
 {
     public static readonly TimeSpan Deadline = TimeSpan.FromMinutes(3);
 
@@ -16,7 +16,7 @@ public sealed class ServerlessResume(IConfiguration configuration, ILogger<Serve
     public static readonly IReadOnlySet<int> Transient = new HashSet<int>
         { -2, 20, 64, 233, 4060, 4221, 10053, 10054, 10060, 10928, 10929, 40143, 40197, 40501, 40540, 40613, 42108, 42109, 49918, 49919, 49920 };
 
-    public async Task<ResumeResult> SignInAsync(ServerlessConfiguration database, Action<int>? onAttempt, CancellationToken token)
+    public virtual async Task<ResumeResult> SignInAsync(ServerlessConfiguration database, Action<int>? onAttempt, CancellationToken token)
     {
         var settings = ServerlessSqlTelemetry.ConnectionSettings(configuration, database, "Caldova.ServerlessResume");
         var clock = System.Diagnostics.Stopwatch.StartNew();

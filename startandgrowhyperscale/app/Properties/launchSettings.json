@@ -21,6 +21,21 @@
         "ServerlessMonitor__ResourceId": "/subscriptions/0efc44aa-c965-420f-aac4-fff305dbcc97/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/sql-caldova-start-0efc44/databases/caldova-scheduling",
         "ServerlessMonitor__EnableWorkload": "true"
       }
+    },
+    "playback": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5096",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Demo__Playback": "true",
+        "Playback__AutoPauseSeconds": "60",
+        "Playback__ResumeSeconds": "14",
+        "ConnectionStrings__Scheduling": "Server=tcp:sql-caldova-start-0efc44.database.windows.net,1433;Initial Catalog=caldova-scheduling;Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connect Timeout=30",
+        "ServerlessMonitor__ResourceId": "/subscriptions/0efc44aa-c965-420f-aac4-fff305dbcc97/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/sql-caldova-start-0efc44/databases/caldova-scheduling",
+        "ServerlessMonitor__EnableWorkload": "true"
+      }
     }
   }
 }

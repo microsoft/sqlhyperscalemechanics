@@ -34,7 +34,7 @@ public sealed record WorkloadRamp(int PeakWorkers, TimeSpan StepUp, TimeSpan Hol
     }
 }
 
-public sealed class ServerlessSqlWorkload(IConfiguration configuration, ILogger<ServerlessSqlWorkload> logger) : IAsyncDisposable
+public class ServerlessSqlWorkload(IConfiguration configuration, ILogger<ServerlessSqlWorkload> logger) : IAsyncDisposable
 {
     public const string Query = """
         SET NOCOUNT ON;
@@ -51,10 +51,10 @@ public sealed class ServerlessSqlWorkload(IConfiguration configuration, ILogger<
     private CancellationTokenSource? cancellation;
     private Task? execution;
     private SqlWorkloadSnapshot snapshot = new(false, 0, 0, 0, null, null, null);
-    public bool Enabled => configuration.GetValue<bool>("ServerlessMonitor:EnableWorkload");
-    public SqlWorkloadSnapshot Snapshot { get { lock (gate) return snapshot; } }
+    public virtual bool Enabled => configuration.GetValue<bool>("ServerlessMonitor:EnableWorkload");
+    public virtual SqlWorkloadSnapshot Snapshot { get { lock (gate) return snapshot; } }
 
-    public void Start(ServerlessConfiguration database, int workers, int minutes)
+    public virtual void Start(ServerlessConfiguration database, int workers, int minutes)
     {
         if (!Enabled) throw new InvalidOperationException("SQL load generation is disabled. Enable only for an approved, access-restricted demo.");
         if (workers is < 1 or > 16 || minutes is < 1 or > 10)
@@ -62,7 +62,7 @@ public sealed class ServerlessSqlWorkload(IConfiguration configuration, ILogger<
         Launch(database, workers, TimeSpan.FromMinutes(minutes), null);
     }
 
-    public void StartRamp(ServerlessConfiguration database, WorkloadRamp ramp)
+    public virtual void StartRamp(ServerlessConfiguration database, WorkloadRamp ramp)
     {
         if (!Enabled) throw new InvalidOperationException("SQL load generation is disabled. Enable only for an approved, access-restricted demo.");
         ramp.Validate();
@@ -132,13 +132,13 @@ public sealed class ServerlessSqlWorkload(IConfiguration configuration, ILogger<
         }
     }
 
-    public async Task StopAsync()
+    public virtual async Task StopAsync()
     {
         cancellation?.Cancel();
         if (execution is not null) await execution;
     }
 
-    public async ValueTask DisposeAsync()
+    public virtual async ValueTask DisposeAsync()
     {
         await StopAsync();
         cancellation?.Dispose();
