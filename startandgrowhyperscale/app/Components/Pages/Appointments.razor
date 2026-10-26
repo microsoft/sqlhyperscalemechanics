@@ -7,7 +7,7 @@
     <p class="eyebrow">Step 4 · One network search, one provider write</p>
     <h1>Find and book the next available appointment</h1>
     <p>Real SQL over synthetic scheduling data. All times shown in UTC. One connection to Caldova,
-        a native cross-database join view for reads, and a conditional write in the selected provider's database.</p>
+        a native cross-database join view for reads, and one transaction that writes only to the selected provider's database.</p>
 </section>
 <section class="panel">
     <div class="transport">
@@ -20,7 +20,6 @@
         <label><input type="checkbox" @bind="networkWide" disabled="@busy" /> Search the entire network</label>
         <button class="btn btn-primary" disabled="@busy" @onclick="SearchAsync">@(busy ? "Working..." : "Find openings")</button>
     </div>
-    <p class="muted">Search Caldova alone first, then include the network to compare access.</p>
 </section>
 @if (error is not null) { <div class="callout callout-error" role="alert">@error</div> }
 @if (message is not null) { <div class="callout callout-info" role="status">@message</div> }
@@ -62,8 +61,9 @@
 }
 @if (bookingQuery is not null)
 {
-    <section class="panel"><h2>Booking · one conditional write</h2><pre class="code">@bookingQuery</pre>
-        <p>No explicit transaction and no automatic write retry. A slot already taken produces no write.</p></section>
+    <section class="panel"><h2>Booking · one transaction, one write database</h2><pre class="code">@bookingQuery</pre>
+        <p>From the Caldova connection: update the slot and insert the appointment, both in the provider's database.
+            A transaction can write to only one database. A slot already taken produces no write.</p></section>
 }
 <details class="panel">
     <summary>Behind the view · native cross-database joins</summary>
@@ -71,7 +71,6 @@
     <p>Caldova's provider directory joins to each provider's schedule. UNION ALL combines the joined results.
         Each database checks the application's permissions.</p>
 </details>
-<div class="transport"><NavLink class="btn btn-secondary" href="/verify">Back · Step 3</NavLink></div>
 
 @code {
     private string specialty = "Cardiology";
@@ -115,7 +114,7 @@
             bookingCompleted = true;
             bookingQuery = booking.QueryText;
             message = booking.Booked
-                ? $"Booked {slot.ProviderName}, slot {slot.SlotId}. Only that provider's database was written."
+                ? $"Booked {slot.ProviderName}, slot {slot.SlotId}: slot updated and appointment inserted in {SqlAppointmentAvailabilityService.GetDatabase(slot.ProviderKey)}, one transaction."
                 : "That slot is no longer available. No booking was made; choose another opening.";
             var scope = result?.NetworkWide ?? networkWide;
             result = null;

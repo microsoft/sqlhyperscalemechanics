@@ -16,6 +16,7 @@ IF EXISTS (
     THROW 50002, 'Existing user is not mapped to the expected login; inspect the mapping before continuing.', 1;
 
 GRANT SELECT, UPDATE ON OBJECT::dbo.AppointmentSlot TO [app-caldova-network-0efc44];
+GRANT INSERT ON OBJECT::dbo.Appointment TO [app-caldova-network-0efc44];
 IF DB_NAME() = N'caldova-scheduling'
 BEGIN
     EXEC(N'GRANT SELECT ON OBJECT::network.ProviderClinic TO [app-caldova-network-0efc44];');

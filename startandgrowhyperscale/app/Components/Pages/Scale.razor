@@ -49,14 +49,13 @@ else
         and advance only while SQL batches complete. A run connects to SQL: it can resume the database, incurs compute charges,
         and keeps the database awake until cooldown ends.
     </div>
-    @if (!Workload.Enabled) { <p class="callout callout-info">Load generation is disabled on this deployment. Enable only for an approved, access-restricted demo, or choose Scripted.</p> }
+    @if (!Workload.Enabled) { <p class="callout callout-info">Load generation is disabled on this deployment.</p> }
 }
 @if (snap.IsComplete)
 {
     <div class="callout callout-done">
         <strong>@(scripted ? "Scene complete." : "Measured run complete.")</strong>
         @(scripted ? "Busy morning, quiet midday, auto-pause, and back online for the afternoon clinic." : "Staff signed in, SQL CPU rose, staff signed out, and measured CPU fell. Observation has stopped.")
-        Review <a href="#billing">serverless billing in Azure</a> before continuing.
     </div>
 }
 @if (error is not null) { <p class="callout callout-error" role="alert">@error</p> }
@@ -200,44 +199,45 @@ else
     </aside>
 </section>
 
+@if (scripted)
+{
 <section class="panel" id="billing">
     <h2>Before moving on: what did Caldova pay for?</h2>
     <a class="btn btn-secondary" href="@Monitor.PortalUrl" target="_blank" rel="noopener noreferrer">Open Caldova database in Azure portal</a>
     <p>Show the actual billed-compute bar chart in the portal without hovering over the numbers: online minimum,
         above minimum with activity, back down, no compute charge during confirmed auto-pause, and billing returning after resume.
-        The app's CPU chart does not use Azure Monitor@(scripted ? ", and this illustration generates no billing evidence" : "").</p>
+        The app's CPU chart does not use Azure Monitor, and this illustration generates no billing evidence.</p>
     <p>Idle but online: minimum compute charges still apply. Confirmed paused intervals have no compute charges.
         Storage and applicable backup charges continue. Missing samples are not proof of zero charges.</p>
     <details>
-        <summary>Presenter setup · metric units, permissions, and @(scripted ? "evidence" : "raw samples")</summary>
+        <summary>Presenter setup · metric units, permissions, and evidence</summary>
         <p>App CPU billed (<code>app_cpu_billed</code>, Sum) is in vCore-seconds; a workbook can divide by bucket seconds
             for average billed vCores. CPU percentage (<code>app_cpu_percent</code>) is optional diagnostic detail.
             Use the recorded real workload window, not the illustration's clock. Confirm pause/resume through Azure activity records.</p>
-        <p>Measured runs: SQL observation can resume the database and prevent auto-pause; it stops automatically after cooldown.
-            Close all SQL clients before waiting for auto-pause. The observing SQL identity requires <code>VIEW DATABASE STATE</code>;
-            no permission is granted automatically. SQL reports 15-second interval averages; observation is limited to 55 minutes.
-            Missing samples are not filled with zeros. A small scalar workload does not guarantee that billing equals CPU used.</p>
-        @if (!scripted)
-        {
-            <label>Peak SQL workers <input type="number" min="1" max="16" @bind="workers" disabled="@Busy" /></label>
-            <label>Ramp-up step (seconds) <input type="number" min="5" max="120" @bind="stepSeconds" disabled="@Busy" /></label>
-            <label>Hold at peak (seconds) <input type="number" min="15" max="300" @bind="holdSeconds" disabled="@Busy" /></label>
-            <label>Ramp-down step (seconds) <input type="number" min="5" max="120" @bind="stepDownSeconds" disabled="@Busy" /></label>
-            <p>@load.Completed SQL batches completed · @load.Failed failures. Each worker repeatedly hashes a scalar value in SQL
-                (no table reads or writes); no automatic retries; the first failure stops all workers.</p>
-            <table class="slots">
-                <thead><tr><th>UTC interval end</th><th>CPU % (Average)</th><th>vCore limit</th><th>CPU used (average vCores)</th></tr></thead>
-                <tbody>
-                    @foreach (var sample in samples)
-                    {
-                        <tr><td>@sample.At.UtcDateTime.ToString("HH:mm:ss", CultureInfo.InvariantCulture)</td><td>@F(sample.CpuPercent)</td><td>@F(sample.CpuLimit)</td><td>@F(sample.UsedVCores)</td></tr>
-                    }
-                </tbody>
-            </table>
-        }
     </details>
-    <strong>End of Part 1.</strong>
 </section>
+}
+else
+{
+<details class="panel">
+    <summary>Behind the chart · SQL workload and samples</summary>
+    <p>Each staff member is one SQL worker that repeatedly hashes a scalar value (no table reads or writes).
+        @load.Completed SQL batches completed · @load.Failed failures.</p>
+    <pre class="code">@ServerlessSqlWorkload.Query</pre>
+    <p>CPU comes from <code>sys.dm_db_resource_stats</code> in 15-second intervals (observation limited to 55 minutes;
+        requires <code>VIEW DATABASE STATE</code>; observing can prevent auto-pause until cooldown ends).
+        The chart does not use Azure Monitor. Missing samples are not filled with zeros.</p>
+    <table class="slots">
+        <thead><tr><th>UTC interval end</th><th>CPU % (Average)</th><th>vCore limit</th><th>CPU used (average vCores)</th></tr></thead>
+        <tbody>
+            @foreach (var sample in samples)
+            {
+                <tr><td>@sample.At.UtcDateTime.ToString("HH:mm:ss", CultureInfo.InvariantCulture)</td><td>@F(sample.CpuPercent)</td><td>@F(sample.CpuLimit)</td><td>@F(sample.UsedVCores)</td></tr>
+            }
+        </tbody>
+    </table>
+</details>
+}
 
 @code {
     [Parameter] public bool? ForceScripted { get; set; }

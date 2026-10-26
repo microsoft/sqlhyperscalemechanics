@@ -303,8 +303,8 @@ permission to delete or recreate resources.
 5. Report ARM configuration separately from SQL/app readiness. Pooled native
    three-part-name access also needs an Entra server login, mapped users in each
    database, and target-object permissions; validate cross-database reads before
-   resuming SQL traffic. The app's "Add these databases to a pool" button only
-   displays instructions.
+   resuming SQL traffic. The app has no pool or portal buttons; the pool move
+   happens only through this skill.
 
 Never run `04-deploy-sql.ps1` or `99-remove.ps1` to switch membership, create a
 replacement pool, relax Entra-only auth, add SQL credentials, grant `db_owner`,

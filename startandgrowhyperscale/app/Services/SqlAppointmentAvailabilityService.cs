@@ -48,19 +48,36 @@ public sealed class SqlAppointmentAvailabilityService(IConfiguration configurati
         _ => throw new ArgumentException("Unknown scheduling provider.", nameof(providerKey)),
     };
 
-    public static string GetBookingQuery(string providerKey) => $"""
-        UPDATE s
-        SET IsBooked = 1
-        OUTPUT inserted.SlotId
-        FROM {GetSourceObject(providerKey)} AS s
-        WHERE s.SlotId = @SlotId AND s.IsBooked = 0
-          AND s.SlotStart >= SYSUTCDATETIME()
-          AND EXISTS (
-              SELECT 1 FROM network.ProviderClinic AS p
-              WHERE p.ProviderKey = @ProviderKey AND p.ClinicId = s.ClinicId
-                AND p.IsNetworkMember = 1
-          );
-        """;
+    public static string GetBookingQuery(string providerKey)
+    {
+        var database = GetDatabase(providerKey);
+        return $"""
+            SET XACT_ABORT ON;
+            DECLARE @booked int = 0;
+            BEGIN TRANSACTION;  -- every write goes to [{database}]
+
+            UPDATE s
+            SET IsBooked = 1
+            FROM {GetSourceObject(providerKey)} AS s
+            WHERE s.SlotId = @SlotId AND s.IsBooked = 0
+              AND s.SlotStart >= SYSUTCDATETIME()
+              AND EXISTS (
+                  SELECT 1 FROM network.ProviderClinic AS p
+                  WHERE p.ProviderKey = @ProviderKey AND p.ClinicId = s.ClinicId
+                    AND p.IsNetworkMember = 1
+              );
+
+            IF @@ROWCOUNT = 1
+            BEGIN
+                INSERT [{database}].dbo.Appointment (SlotId, BookedAtUtc, BookedVia)
+                VALUES (@SlotId, SYSUTCDATETIME(), N'caldova-network');
+                SET @booked = 1;
+            END;
+
+            COMMIT TRANSACTION;
+            SELECT @booked AS Booked;
+            """;
+    }
 
     private SqlConnection CreateConnection()
     {
@@ -115,24 +132,30 @@ public sealed class SqlAppointmentAvailabilityService(IConfiguration configurati
         command.Parameters.Add("@SlotId", SqlDbType.BigInt).Value = slotId;
         command.Parameters.Add("@ProviderKey", SqlDbType.NVarChar, 20).Value = providerKey;
         var value = await command.ExecuteScalarAsync(cancellationToken);
-        return new BookingResult(value is long id && id == slotId, query);
+        return new BookingResult(value is int booked && booked == 1, query);
     }
 
-    public async Task<string> CheckAccessAsync(CancellationToken cancellationToken = default)
+    public const string NetworkCheckQuery = """
+        SELECT ProviderKey, COUNT_BIG(*) AS OpenSlots
+        FROM network.AppointmentAvailability
+        GROUP BY ProviderKey
+        ORDER BY ProviderKey;
+        """;
+
+    public static string GetDatabase(string providerKey) => GetSourceObject(providerKey).Split(']')[0].TrimStart('[');
+
+    public async Task<NetworkCheck> CheckNetworkAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = CreateConnection();
         await connection.OpenAsync(cancellationToken);
-        using var command = new SqlCommand("""
-            SELECT ProviderKey, COUNT_BIG(*) AS OpenSlots
-            FROM network.AppointmentAvailability
-            GROUP BY ProviderKey ORDER BY ProviderKey;
-            """, connection) { CommandTimeout = 30 };
+        using var command = new SqlCommand(NetworkCheckQuery, connection) { CommandTimeout = 30 };
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        var counts = new List<string>();
+        var providers = new List<ProviderReach>();
         while (await reader.ReadAsync(cancellationToken))
-            counts.Add($"{reader.GetString(0)}: {reader.GetInt64(1)} unbooked slots");
-        return $"Cross-database view executed from {connection.Database}. " +
-            (counts.Count == 0 ? "No unbooked slots; check seed data." : string.Join("; ", counts)) +
-            ". This checks reads, not booking permissions or pool configuration.";
+        {
+            var key = reader.GetString(0);
+            providers.Add(new ProviderReach(key, GetDatabase(key), reader.GetInt64(1)));
+        }
+        return new NetworkCheck(connection.Database, providers, NetworkCheckQuery, DateTimeOffset.UtcNow);
     }
 }

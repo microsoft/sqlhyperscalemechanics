@@ -183,7 +183,7 @@ Stop **observation** before the auto-pause beat. There is no scripted patient ac
 pause/resume, or guaranteed duration/curve. Record and time-lapse if necessary;
 label the recording and preserve real timestamps.
 
-Use **Open Caldova database in Azure portal** for the separate billed-compute
+In the Azure portal, open the Caldova database for the separate billed-compute
 bar chart. In **Monitoring > Metrics**, select `app_cpu_billed`, **Sum**, with
 the intended historical or newly recorded range. For one-minute buckets,
 vCore-seconds / 60 gives average billed vCores in a workbook. Show bars without
@@ -249,8 +249,7 @@ chapter, the scaling/workload gate above must pass.
 Show Caldova, Northbrook Family Clinics, and Ridgeview Specialty Care. The cards
 describe their starting configurations, not live Azure state.
 
-Press **Add these databases to a pool**. The app displays instructions only.
-In the same GitHub Copilot chat used for Beat 1.2, type:
+Switch to the same GitHub Copilot chat used for Beat 1.2 and type:
 
 > Integrate Caldova's acquired providers into the scheduling pool.
 
@@ -260,11 +259,9 @@ approving. It adds databases to the existing preview-enabled pool, not a new one
 Caldova converts from serverless to provisioned compute. Wait for all three
 postconditions to pass.
 
-Continue to **Step 3 - verify in Azure**.
+### Beat 2.2 - One pool, one network (current app Step 3 Network, `/verify`)
 
-### Beat 2.2 - Verify the real pool (current app Step 3, `/verify`)
-
-Press **Open pool in Azure portal** to go directly to the pool:
+In the Azure portal, open the pool directly:
 
 1. Resource group `caldova-network-rg`.
 2. Server `sql-caldova-network-0efc44`.
@@ -272,12 +269,12 @@ Press **Open pool in Azure portal** to go directly to the pool:
 4. Confirm all three scheduling databases are pooled and online.
 5. Inspect actual pool capacity; no app-generated metrics are shown.
 
-Then press **Check cross-database reads** in the app. This executes the native join
-view using the configured application identity. It does not prove booking
-permissions. Failures are displayed and logged; do not continue as if SQL passed.
+Then press **Check network** in the app. From Caldova it runs the native join
+view using the configured application identity and shows each database's open
+slots and the query. It does not prove booking permissions. Failures are displayed
+and logged; do not continue as if SQL passed.
 
-Do not follow the current app's Next link yet. Present the scaling and database-growth
-beats before moving to Search & Book.
+Present the scaling and database-growth beats before moving to Search & Book.
 
 ### Beat 2.3 - Scale the pool while watching workload
 
@@ -328,8 +325,9 @@ volume/cost and scoped cleanup beforehand. No fake storage-growth gauge.
 3. Expand **Behind the view**. Caldova's central provider/clinic directory joins
    to local and native three-part-name remote appointment tables. `UNION ALL`
    combines the joined provider results.
-4. Book a Ridgeview slot. The displayed SQL performs one conditional `UPDATE`
-   in Ridgeview from the same source connection to Caldova.
+4. Book a Ridgeview slot. The displayed SQL runs one transaction from the Caldova
+   connection: it updates the slot and inserts an appointment row, both in
+   `[ridgeview-scheduling]`, a cross-database `INSERT` with one write database.
 5. The slot disappears from open availability. Repeat the same slot from a
    second browser session to demonstrate that only the first booking can succeed.
 6. Switch to Pediatrics to show Northbrook's schedule.
@@ -337,10 +335,10 @@ volume/cost and scoped cleanup beforehand. No fake storage-growth gauge.
 All displayed times are UTC. Booking records availability only; there is no
 patient information in this synthetic scenario.
 
-No explicit transaction is needed for the one-statement booking. A competing
-booking returns unavailable, not success. A lost write response is an unknown
-outcome: inspect that provider's slot in SQL before retrying. No automatic write
-retry or second database audit write is performed.
+The transaction writes only to the provider's database (the preview allows one
+write database per transaction). A competing booking returns unavailable, not
+success. A lost write response is an unknown outcome: inspect that provider's slot
+in SQL before retrying. No automatic write retry and no write to Caldova.
 
 ## Reset and chapter exit
 

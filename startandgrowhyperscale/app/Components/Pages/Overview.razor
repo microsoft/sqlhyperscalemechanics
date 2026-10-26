@@ -20,28 +20,10 @@
 </div>
 <section class="panel">
     <h2>One scheduling network, three independently owned databases</h2>
-    <p>These cards describe the starting configuration, not live Azure status. The existing
-        <code>caldova-network-pool</code> is enabled for native cross-database queries.</p>
-    <button class="btn btn-primary" @onclick="() => showInstructions = true">Add these databases to a pool</button>
-    @if (showInstructions)
-    {
-        <div class="callout callout-info" role="status">
-            <strong>Run this prompt in the same GitHub Copilot chat:</strong>
-            <p>Integrate Caldova's acquired providers into the scheduling pool.</p>
-            <p>The <code>start-and-grow-hyperscale-demo</code> skill previews the changes and asks for approval.
-                It adds the three databases to the existing pool; Caldova leaves serverless for provisioned compute.
-                Stop scheduling traffic before approving the move.</p>
-            <p>This button does not create a pool, move databases, or mark the operation complete.</p>
-        </div>
-    }
+    <p>Each provider keeps its own scheduling database and schedule. Caldova staff search and book across all three.</p>
 </section>
-<div class="transport">
-    <NavLink class="btn btn-secondary" href="/">Back · Step 1</NavLink>
-    <NavLink class="btn btn-primary" href="/verify">Next · Step 3: verify in Azure</NavLink>
-</div>
 
 @code {
-    private bool showInstructions;
     private readonly (string Name, string Role, string Database, string Compute)[] providers =
     [
         ("Caldova Health", "Acquirer", "caldova-scheduling", "Hyperscale serverless · 1-8 vCores"),

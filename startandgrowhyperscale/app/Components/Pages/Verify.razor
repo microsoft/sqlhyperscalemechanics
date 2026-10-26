@@ -1,48 +1,67 @@
 @page "/verify"
+@using CaldovaNetworkScheduling.Models
 @inject IAppointmentAvailabilityService Availability
 @inject ILogger<Verify> Logger
 
-<PageTitle>Step 3 · Verify the Caldova pool</PageTitle>
-<section class="page-header">
-    <p class="eyebrow">Step 3 · Verify the real configuration</p>
-    <h1>Check the scheduling pool in Azure</h1>
-    <p>Use the portal to confirm the skill's result. Advancing through this page does not change or verify Azure resources.</p>
+<PageTitle>Step 3 · Caldova scheduling network</PageTitle>
+<section class="page-header heading-row">
+    <div>
+        <p class="eyebrow">Step 3 · One pool, one network · caldova-network-pool</p>
+        <h1>Caldova scheduling network</h1>
+        <p>Three provider databases share one Hyperscale elastic pool. From its own database, Caldova reads the
+            other two by their three-part names.</p>
+    </div>
+    <div class="transport">
+        <button class="btn btn-primary" disabled="@busy" @onclick="CheckAsync">@(busy ? "Checking..." : "↻ Check network")</button>
+    </div>
 </section>
-<section class="panel">
-    <ol class="steps">
-        <li>Use the button below to open <code>caldova-network-pool</code> directly in the Azure portal.</li>
-        <li>Confirm server <code>sql-caldova-network-0efc44</code> and resource group <code>caldova-network-rg</code>.</li>
-        <li>Confirm Caldova, Northbrook, and Ridgeview scheduling databases are all in this Hyperscale pool and online.</li>
-        <li>Caldova now uses pooled provisioned compute, not serverless. Confirm the pool capacity in the portal.</li>
-    </ol>
-    <a class="btn btn-secondary" href="https://portal.azure.com/#resource/subscriptions/0efc44aa-c965-420f-aac4-fff305dbcc97/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/sql-caldova-network-0efc44/elasticPools/caldova-network-pool/overview" target="_blank" rel="noopener noreferrer">Open pool in Azure portal</a>
-    <p>Before the next step, deploy the scheduling schema, native join view, and Entra login mappings using the setup scripts.
-        Pool membership alone does not grant database access.</p>
-</section>
-<section class="panel">
-    <h2>Check the application's read path</h2>
-    <p>This executes the cross-database view through the application's configured SQL identity. It is separate from the portal check.</p>
-    <button class="btn btn-primary" disabled="@busy" @onclick="CheckAsync">@(busy ? "Checking SQL..." : "Check cross-database reads")</button>
-    @if (message is not null) { <p role="status">@message</p> }
-    @if (error is not null) { <p class="callout callout-error" role="alert">@error</p> }
-</section>
-<div class="transport">
-    <NavLink class="btn btn-secondary" href="/network">Back · Step 2</NavLink>
-    <NavLink class="btn btn-primary" href="/appointments">Next · Step 4: search and book</NavLink>
+@if (error is not null) { <p class="callout callout-error" role="alert">@error</p> }
+<div class="provider-grid">
+    @foreach (var (key, name, role) in providers)
+    {
+        var reach = check?.Providers.FirstOrDefault(p => p.ProviderKey == key);
+        <article class="provider-card">
+            <header><span class="provider-tag">@role</span><h2>@name</h2></header>
+            <dl>
+                <div><dt>Database</dt><dd><code>@SqlAppointmentAvailabilityService.GetDatabase(key)</code></dd></div>
+                <div><dt>Elastic pool</dt><dd><code>caldova-network-pool</code></dd></div>
+                <div><dt>Read from Caldova as</dt><dd><code>@(key == "caldova" ? "dbo.AppointmentSlot (local)" : SqlAppointmentAvailabilityService.GetSourceObject(key))</code></dd></div>
+                <div><dt>Open slots</dt><dd><strong>@(reach?.OpenSlots.ToString() ?? (busy ? "…" : "–"))</strong></dd></div>
+                <div><dt>Status</dt><dd>@(reach is not null ? "✓ Reachable" : busy ? "Checking…" : "–")</dd></div>
+            </dl>
+        </article>
+    }
 </div>
+@if (check is not null)
+{
+    <section class="panel">
+        <h2>What the app runs</h2>
+        <pre class="code">@check.QueryText</pre>
+        <p class="footnote">One connection to <code>@check.SourceDatabase</code>; the view joins the other databases in the pool.
+            Checked @check.CheckedAt.UtcDateTime.ToString("HH:mm:ss") UTC.</p>
+    </section>
+}
 @code {
     private bool busy;
-    private string? message;
+    private NetworkCheck? check;
     private string? error;
+    private readonly (string Key, string Name, string Role)[] providers =
+    [
+        ("caldova", "Caldova Health", "Acquirer"),
+        ("northbrook", "Northbrook Family Clinics", "Acquired · primary care and pediatrics"),
+        ("ridgeview", "Ridgeview Specialty Care", "Acquired · cardiology and orthopedics"),
+    ];
+
     private async Task CheckAsync()
     {
         busy = true;
-        message = error = null;
-        try { message = await Availability.CheckAccessAsync(); }
+        error = null;
+        try { check = await Availability.CheckNetworkAsync(); }
         catch (Exception ex) when (ex is Microsoft.Data.SqlClient.SqlException or InvalidOperationException)
         {
-            Logger.LogError(ex, "Caldova cross-database read check failed");
-            error = "SQL check failed. Verify pooled placement, schema, login mappings, grants, and network access. See server logs for the full error.";
+            Logger.LogError(ex, "Caldova cross-database network check failed");
+            check = null;
+            error = "The network check failed. See server logs for details.";
         }
         finally { busy = false; }
     }

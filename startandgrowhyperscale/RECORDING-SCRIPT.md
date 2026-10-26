@@ -43,7 +43,7 @@ until it has had no connections for at least 60 minutes (Hyperscale minimum).
 | - | **Wait at least 10 minutes after the pause** before take 5, so the billing chart shows a clear gap. | - |
 | 5 | **Resume.** Click **Sign in (resume)**. A staff avatar connects with a spinner; the app retries quietly and shows "First sign-in completed in N s". Status returns to Online. | Ready (resumed in ~15 s; message after a completed run fixed 2026-10-25) |
 | - | **Wait 3-5 minutes (off camera)** for Azure Monitor to publish the new billing minutes. | - |
-| 6 | **Billing.** Click **Open Caldova database in Azure portal** > Metrics > App CPU billed (Sum), 1-minute granularity, from about 10 min before the run to now. Show the bars: rise with the run, step down slowly, sit at the 1-vCore floor, a gap with no bars while paused, bars return after resume. Don't hover over numbers. | Ready (2026-10-25: rise to 4.47 avg billed vCores, step down, 1.0 floor for 60 min, no bars while paused, bars return after resume) |
+| 6 | **Billing.** In the portal, go to the Caldova database (`sql-caldova-start-0efc44` / `caldova-scheduling`) > Metrics > App CPU billed (Sum), 1-minute granularity, from about 10 min before the run to now. Show the bars: rise with the run, step down slowly, sit at the 1-vCore floor, a gap with no bars while paused, bars return after resume. Don't hover over numbers. | Ready (2026-10-25: rise to 4.47 avg billed vCores, step down, 1.0 floor for 60 min, no bars while paused, bars return after resume) |
 
 Say for take 6: "When the database pauses, compute billing stops - there are no
 bars at all - and it picks back up on the next sign-in." Paused minutes have no
@@ -66,9 +66,9 @@ the databases are pooled.
 
 | Take | What to record | Status |
 |---|---|---|
-| 7 | **Beat 2.1 - Acquisitions.** App Step 2 (`/network`). Show the three providers; click **Add these databases to a pool** (instructions only). | Rehearse |
+| 7 | **Beat 2.1 - Acquisitions.** App Step 2 (`/network`). Show the three providers, then switch to the Copilot chat for take 8. | Rehearse |
 | 8 | **Beat 2.1 - Pool move.** In the same Copilot chat: "Integrate Caldova's acquired providers into the scheduling pool." Copilot shows the preview; confirm no SQL traffic; approve. Caldova leaves serverless; all three move into the pool (several minutes; time-lapse with disclosure). | Rehearse (preflight passed; not yet applied live) |
-| 9 | **Beat 2.2 - Verify.** App Step 3 (`/verify`) > **Open pool in Azure portal**: three databases in `caldova-network-pool`. Then **Check cross-database reads** in the app. | **Blocked** - cross-database preview not active on the pool (Msg 40515, 2026-10-24) |
+| 9 | **Beat 2.2 - Network.** In the portal, open `caldova-network-pool`: three databases in the pool. Then app Step 3 (`/verify`) > **Check network**: each database reachable from Caldova, with the query. | **Blocked** - cross-database preview not active on the pool (Msg 40515, 2026-10-24) |
 | 10 | **Beat 2.3 - Scale the pool under workload.** | Not built |
 | 11 | **Beat 2.4 - Database growth.** | Not built |
 | 12 | **Beat 2.5 - Search and book.** App Step 4 (`/appointments`): Cardiology local, then **Search the entire network**; show the view; book a Ridgeview slot; Pediatrics shows Northbrook. | **Blocked** - same as take 9 |

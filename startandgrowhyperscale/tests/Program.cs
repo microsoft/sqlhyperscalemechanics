@@ -102,12 +102,16 @@ Check(sql.ViewDefinition.Split("p.IsNetworkMember = 1 AND s.IsBooked = 0").Lengt
 foreach (var key in new[] { "caldova", "northbrook", "ridgeview" })
 {
     var query = SqlAppointmentAvailabilityService.GetBookingQuery(key);
-    Check(query.Split("UPDATE ").Length == 2, $"{key} booking has exactly one UPDATE");
-    Check(query.Contains($"FROM {SqlAppointmentAvailabilityService.GetSourceObject(key)} AS s"), $"{key} writes the allowlisted target");
-    Check(query.Contains("s.IsBooked = 0") && query.Contains("s.SlotId = @SlotId"), $"{key} conditional slot claim");
-    Check(query.Contains("OUTPUT inserted.SlotId"), $"{key} result comes from the actual write");
+    var database = SqlAppointmentAvailabilityService.GetDatabase(key);
+    Check(query.Split("UPDATE ").Length == 2 && query.Split("INSERT ").Length == 2, $"{key} booking has one UPDATE and one INSERT");
+    Check(query.Contains($"FROM {SqlAppointmentAvailabilityService.GetSourceObject(key)} AS s")
+        && query.Contains($"INSERT [{database}].dbo.Appointment"), $"{key} writes only the allowlisted provider database");
+    Check(new[] { "caldova-scheduling", "northbrook-scheduling", "ridgeview-scheduling" }.Where(d => d != database).All(d => !query.Contains($"[{d}]")),
+        $"{key} transaction writes to exactly one database");
+    Check(query.Contains("s.IsBooked = 0") && query.Contains("s.SlotId = @SlotId") && query.Contains("IF @@ROWCOUNT = 1"), $"{key} conditional slot claim");
+    Check(query.Contains("BEGIN TRANSACTION") && query.Contains("COMMIT TRANSACTION") && query.Contains("SET XACT_ABORT ON")
+        && !query.Contains("SAVE TRAN"), $"{key} one atomic transaction without savepoints");
     Check(query.Contains("p.ProviderKey = @ProviderKey") && query.Contains("p.IsNetworkMember = 1"), $"{key} membership guard");
-    Check(!query.Contains("BEGIN TRAN") && !query.Contains("INSERT "), $"{key} has no second write or redundant transaction");
 }
 try
 {
@@ -152,19 +156,17 @@ foreach (var route in new[] { "/network", "/verify", "/appointments" })
 Check(layout.Contains("Serverless: SQL DMV"), "Layout identifies actual serverless metric source");
 var acquisition = await RenderAsync<Overview>();
 var patientAccess = await RenderAsync<Scale>();
-Check(patientAccess.Contains("id=\"billing\"") && patientAccess.Contains("app_cpu_billed"), "Patient Access includes a real billed-compute checkpoint");
-Check(patientAccess.Contains("/databases/caldova-scheduling/overview\""), "Billing checkpoint links directly to Caldova");
-Check(patientAccess.Contains("minimum compute charges still apply") && patientAccess.Contains("no compute charges")
-    && patientAccess.Contains("Storage and applicable backup charges continue"), "Billing distinguishes idle, paused compute, and ongoing storage");
-Check(patientAccess.Contains("not proof of zero charges") && patientAccess.Contains("Missing samples"), "Missing metrics are not presented as zero charges");
-Check(patientAccess.Contains("avg_cpu_percent × cpu_limit / 100") && patientAccess.Contains("average billed vCores"), "SQL CPU and separate portal billing conversions are disclosed");
+Check(!patientAccess.Contains("id=\"billing\"") && !patientAccess.Contains("Open Caldova database in Azure portal")
+    && !patientAccess.Contains("End of Part 1") && !patientAccess.Contains("Presenter setup"), "Measured page has no presenter or portal instructions");
+Check(patientAccess.Contains("Behind the chart") && patientAccess.Contains("HASHBYTES"), "Measured page shows the SQL workload behind the chart");
+Check(patientAccess.Contains("avg_cpu_percent × cpu_limit / 100") && patientAccess.Contains("sys.dm_db_resource_stats"), "SQL CPU calculation and source are disclosed");
 Check(patientAccess.Contains("▶ Run") && patientAccess.Contains("No generated samples")
     && patientAccess.Contains("measured vCores") && !patientAccess.Contains("scripted vCores"), "Measured mode uses the shared scene and waits for actual SQL metrics");
 Check(patientAccess.Contains("prevent auto-pause") && patientAccess.Contains("VIEW DATABASE STATE"),
     "Initial view discloses SQL observation keeps the database awake and requires SQL permission");
 Check(patientAccess.Contains("15-second") && patientAccess.Contains("55 minutes")
     && patientAccess.Contains("chart does not use Azure Monitor"), "SQL chart discloses interval, retention window, and measurement source");
-Check(patientAccess.Contains("End of Part 1") && !patientAccess.Contains("Next · Step 2"), "Serverless chapter ends independently");
+Check(!patientAccess.Contains("Next · Step 2"), "Serverless chapter ends independently");
 Check(patientAccess.Contains("staff online") && patientAccess.Contains("Staff online equals the actual number of active SQL workers")
     && patientAccess.Contains("schedule entries are illustrative") && !patientAccess.Contains("Press Play"), "Measured staff map to real workers; patient entries are disclosed as illustrative");
 Check(patientAccess.Contains("Load generation is disabled"), "SQL load is opt-in");
@@ -185,17 +187,19 @@ Check(ServerlessResume.Transient.Contains(40613) && ServerlessResume.Transient.C
     "Resume retries only transient errors (not login failures) with capped backoff");
 Check(illustration.Contains("without hovering") && illustration.Contains("no compute charge during confirmed auto-pause"),
     "Portal beat is a visual billed-compute story, not a hover-number comparison");
-Check(acquisition.Contains("Add these databases to a pool"), "Acquisition exposes instructions button");
+Check(acquisition.Contains("northbrook-scheduling") && acquisition.Contains("ridgeview-scheduling"), "Acquisition shows the three provider databases");
+Check(!acquisition.Contains("Add these databases to a pool") && !acquisition.Contains("Copilot") && !acquisition.Contains("Next ·"),
+    "Acquisition has no presenter instructions or step buttons");
 Check(!acquisition.Contains("Integrate into elastic pool") && !acquisition.Contains("Load history"), "No simulated Azure mutation buttons");
-Check(acquisition.Contains("Next") && acquisition.Contains("/verify"), "Acquisition advances to portal step");
 var verify = await RenderAsync<Verify>();
-Check(verify.Contains("https://portal.azure.com") && verify.Contains("Check cross-database reads"), "Separate portal and SQL checks");
-Check(verify.Contains("href=\"https://portal.azure.com/#resource/subscriptions/0efc44aa-c965-420f-aac4-fff305dbcc97/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/sql-caldova-network-0efc44/elasticPools/caldova-network-pool/overview\""),
-    "Portal button opens the exact Caldova elastic pool");
+Check(verify.Contains("Check network") && verify.Contains("caldova-network-pool")
+    && verify.Contains("[ridgeview-scheduling].dbo.AppointmentSlot"), "Network page shows pool membership and three-part-name reads");
+Check(!verify.Contains("portal.azure.com") && !verify.Contains("Open pool in Azure portal"), "Network page has no portal instructions");
 var appointments = await RenderAsync<Appointments>();
 Check(appointments.Contains("Find openings") && appointments.Contains("Search the entire network"), "Explicit local/network search");
 Check(appointments.Contains("Step 4") && appointments.Contains("UTC"), "Search shows scenario step and timezone");
 Check(!appointments.Contains("No openings"), "Initial render does not pretend SQL ran");
+Check(!appointments.Contains("Search Caldova alone first") && !appointments.Contains("Back ·"), "Search page has no presenter hints");
 
 var start = new DateTimeOffset(2026, 10, 22, 15, 0, 0, TimeSpan.Zero);
 JsonDocument Metric(string name, string unit, string aggregation, params double?[] values) =>
@@ -363,7 +367,8 @@ Console.WriteLine($"PASS: {checks} query-contract and component-rendering checks
 if (args.Contains("--live"))
 {
     Console.WriteLine("LIVE: will permanently book one synthetic remote slot; requires approved pooled test setup.");
-    Console.WriteLine(await sql.CheckAccessAsync());
+    var networkCheck = await sql.CheckNetworkAsync();
+    Console.WriteLine($"Network check from {networkCheck.SourceDatabase}: " + string.Join("; ", networkCheck.Providers.Select(p => $"{p.Database} {p.OpenSlots} open")));
     var before = await sql.FindNextAsync("Cardiology", true);
     var slot = before.Slots.FirstOrDefault(s => s.ProviderKey == "ridgeview")
         ?? throw new InvalidOperationException("Seed an available Ridgeview cardiology slot before the live test.");

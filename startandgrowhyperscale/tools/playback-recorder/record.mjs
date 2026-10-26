@@ -197,7 +197,13 @@ const clips = {
       await wander(page, [[560, 450], [1200, 500]], 700);
       await click(page, page.getByRole('button', { name: /Run/ }));
       await text(page, 'Measured run complete').waitFor({ timeout: 15 * 60_000 });
+      await sleep(4000);
+      await click(page, page.getByText('Behind the chart · SQL workload and samples'));
+      await sleep(600);
+      await moveTo(page, page.locator('details.panel pre.code'), 400);
       await sleep(6000);
+      await scrollToTop(page);
+      await sleep(2000);
     });
   },
   async 'p1-paused'(page) {
@@ -221,21 +227,21 @@ const clips = {
     await ready(page, '/network');
     await record(page, 'p2-acquisitions', async () => {
       await sleep(3000);
-      await wander(page, [[340, 300], [770, 300], [1200, 300]], 900);
-      await click(page, page.getByRole('button', { name: 'Add these databases to a pool' }));
-      await sleep(1200);
-      await scrollBy(page, 260);
-      await sleep(7000);
+      await wander(page, [[340, 300], [770, 300], [1200, 300]], 1400);
+      await moveTo(page, page.getByRole('heading', { name: /One scheduling network/ }), 500);
+      await sleep(5000);
     });
   },
   async 'p2-verify'(page) {
     await ready(page, '/verify');
     await record(page, 'p2-verify', async () => {
       await sleep(3000);
-      await moveTo(page, page.getByRole('link', { name: 'Open pool in Azure portal' }), 1500);
-      await click(page, page.getByRole('button', { name: 'Check cross-database reads' }));
-      await page.getByRole('status').waitFor({ timeout: 15_000 });
-      await sleep(8000);
+      await click(page, page.getByRole('button', { name: /Check network/ }));
+      await text(page, '✓ Reachable').waitFor({ timeout: 15_000 });
+      await sleep(1500);
+      await wander(page, [[340, 420], [770, 420], [1200, 420]], 1100);
+      await moveTo(page, page.getByRole('heading', { name: 'What the app runs' }), 400);
+      await sleep(6000);
     });
   },
   async 'p2-scale'(page) {
@@ -285,8 +291,8 @@ const clips = {
       await moveTo(page, page.locator('table.slots'), 800);
       await click(page, page.locator('table.slots tbody tr').first().getByRole('button', { name: 'Book slot' }));
       await sleep(3000);
-      await moveTo(page, page.getByRole('heading', { name: 'Booking · one conditional write' }), 400);
-      await sleep(6000);
+      await moveTo(page, page.getByRole('heading', { name: /^Booking · one transaction/ }), 400);
+      await sleep(8000);
       // A colleague in another session books the next Ridgeview opening first.
       await colleague.goto(BASE + '/appointments');
       await colleague.waitForLoadState('networkidle');

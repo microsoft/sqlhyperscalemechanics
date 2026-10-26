@@ -86,10 +86,10 @@ The top navigation is numbered in story order.
 
 | Nav | Beat | What it shows |
 |---|---|---|
-| **1 · Patient Access** (`/`) | Start here | Current source: explicitly start SQL DMV observation, then approved SQL load. Chart CPU used from 15-second SQL resource stats; billing is a separate portal visual. This DMV/ramp revision was published 2026-10-23 (load generation remains disabled). No generated patient activity or scripted scaling/pause/resume. |
-| **2 · Acquisitions** (`/network`) | Bring providers together | Starting-configuration cards. **Add these databases to a pool** displays instructions for the Copilot skill only. No app-driven pool build, scaling, or scripted storage growth. |
-| **3 · Verify Pool** (`/verify`) | Verify reality | Portal checklist for actual pool membership, followed by a separate application-identity SQL read check. |
-| **4 · Search & Book** (`/appointments`) | Stay here | Compare Caldova-only and network searches. Read a native cross-database join view, then book with one conditional update to the owning database. |
+| **1 · Patient Access** (`/`) | Start here | Run starts SQL load and DMV observation; the chart shows CPU used from 15-second SQL resource stats. **Behind the chart** shows the workload SQL and raw samples. Billing is shown separately in the Azure portal (no in-app button). |
+| **2 · Acquisitions** (`/network`) | Bring providers together | Starting-configuration cards only. The pool move happens in Copilot (skill), not in the app. |
+| **3 · Network** (`/verify`) | One pool, one network | Cards per database (pool, three-part name, open slots). **Check network** runs the cross-database view from Caldova and shows the query. Pool membership is shown in the Azure portal (no in-app button). |
+| **4 · Search & Book** (`/appointments`) | Stay here | Compare Caldova-only and network searches. Read a native cross-database join view, then book in one transaction from Caldova that updates the slot and inserts an appointment, both in the provider's database. |
 
 ## Measured serverless chapter
 
@@ -673,7 +673,7 @@ Clips land in `tools\playback-recorder\clips` (gitignored), numbered in play ord
 | 02 | `02-p1-paused.mp4` | Part 1 scene 4 · paused |
 | 03 | `03-p1-resume.mp4` | Part 1 scene 5 · sign in (resume) |
 | 04 | `04-p2-acquisitions.mp4` | Part 2 take 7 · acquisitions |
-| 05 | `05-p2-verify.mp4` | Part 2 take 9 · check cross-database reads |
+| 05 | `05-p2-verify.mp4` | Part 2 take 9 · network check (cross-database reads) |
 | 06 | `06-p2-scale.mp4` | Part 2 take 10 · scale the pool under workload |
 | 07 | `07-p2-growth.mp4` | Part 2 take 11 · storage growth |
 | 08 | `08-p2-search-book.mp4` | Part 2 take 12 · search and book |
