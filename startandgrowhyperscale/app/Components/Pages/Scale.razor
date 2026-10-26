@@ -13,7 +13,7 @@
 
 <section class="page-header heading-row">
     <div>
-        <p class="eyebrow">Step 1 · Start here · Hyperscale serverless · @(scripted ? "SCRIPTED ILLUSTRATION · Not Azure telemetry" : "MEASURED · Actual SQL DMV data")</p>
+        <p class="eyebrow">Step 1 · Start here · Hyperscale serverless@(scripted ? " · SCRIPTED ILLUSTRATION · Not Azure telemetry" : "")</p>
         <h1>Caldova Patient Access</h1>
         <p>Staff sign in and get to work. The database behind them scales on its own.</p>
     </div>
@@ -48,8 +48,8 @@ else
 @if (snap.IsComplete)
 {
     <div class="callout callout-done">
-        <strong>@(scripted ? "Scene complete." : "Measured run complete.")</strong>
-        @(scripted ? "Busy morning, quiet midday, auto-pause, and back online for the afternoon clinic." : "Staff signed in, SQL CPU rose, staff signed out, and measured CPU fell. Observation has stopped.")
+        <strong>@(scripted ? "Scene complete." : "Clinic day complete.")</strong>
+        @(scripted ? "Busy morning, quiet midday, auto-pause, and back online for the afternoon clinic." : "Staff signed in, CPU rose, staff signed out, and CPU fell.")
     </div>
 }
 @if (error is not null) { <p class="callout callout-error" role="alert">@error</p> }
@@ -89,7 +89,7 @@ else
         <div class="board">
             <div class="board-heading">
                 <h2>Live schedule</h2>
-                <span class="muted">Newest first@(scripted ? "" : " · illustrative entries")</span>
+                <span class="muted">Newest first</span>
             </div>
             @if (snap.Status is ServerlessStatus.Paused or ServerlessStatus.IdleAwaitingPause or ServerlessStatus.Resuming || snap.Activity.Count == 0)
             {
@@ -150,7 +150,7 @@ else
 
         <div class="vcore-readout">
             <strong>@Readout</strong>
-            <span>@(scripted ? "scripted vCores (CPU)" : snap.Status == ServerlessStatus.Paused ? "paused · Azure status" : "measured vCores (CPU)")</span>
+            <span>@(scripted ? "scripted vCores (CPU)" : snap.Status == ServerlessStatus.Paused ? "paused" : "vCores in use (CPU)")</span>
         </div>
         <div class="gauge" title="@F(snap.MinVCores)–@F(snap.MaxVCores) vCores">
             <div class="gauge-fill" style="width:@F(Math.Min(100, snap.VCores / snap.MaxVCores * 100))%"></div>
@@ -187,8 +187,7 @@ else
         }
         else
         {
-            <p class="status-detail">Average CPU used per ~15-second SQL interval (<code>avg_cpu_percent × cpu_limit / 100</code>);
-                not allocated or billed compute. Gaps are not filled.</p>
+            <p class="status-detail">Average CPU per 15-second interval (<code>avg_cpu_percent × cpu_limit / 100</code>).</p>
         }
     </aside>
 </section>
@@ -215,12 +214,9 @@ else
 {
 <details class="panel">
     <summary>Behind the chart · SQL workload and samples</summary>
-    <p>Each staff member is one SQL worker that repeatedly hashes a scalar value (no table reads or writes).
-        @load.Completed SQL batches completed · @load.Failed failures.</p>
+    <p>Each staff member runs this batch on its own connection. @load.Completed batches completed.</p>
     <pre class="code">@ServerlessSqlWorkload.Query</pre>
-    <p>CPU comes from <code>sys.dm_db_resource_stats</code> in 15-second intervals (observation limited to 55 minutes;
-        requires <code>VIEW DATABASE STATE</code>; observing can prevent auto-pause until cooldown ends).
-        The chart does not use Azure Monitor. Missing samples are not filled with zeros.</p>
+    <p>CPU comes from <code>sys.dm_db_resource_stats</code> in 15-second intervals.</p>
     <table class="slots">
         <thead><tr><th>UTC interval end</th><th>CPU % (Average)</th><th>vCore limit</th><th>CPU used (average vCores)</th></tr></thead>
         <tbody>
@@ -524,24 +520,24 @@ else
         : phase switch
     {
         RunPhase.Ready or RunPhase.Complete when !Busy && AzureStatus == ServerlessStatus.Paused =>
-            $"Paused · no compute charges · Azure status checked {armCheckedAt:HH:mm:ss} UTC",
+            "Paused · no compute charges",
         RunPhase.Ready when resumed is { } r =>
-            $"First sign-in completed in {r.Elapsed.TotalSeconds:0.#} s · database {armStatus ?? "status unknown"} (Azure status)",
-        RunPhase.Ready => armStatus is null ? "Waiting for the first sign-in" : $"Azure status: {armStatus} · checked {armCheckedAt:HH:mm:ss} UTC",
-        RunPhase.Starting => "Connecting to SQL and reading the database configuration",
-        RunPhase.Baseline => "Quiet baseline before staff sign in",
+            $"First sign-in completed in {r.Elapsed.TotalSeconds:0.#} s · database {armStatus ?? "Online"}",
+        RunPhase.Ready => armStatus is null ? "Waiting for the first sign-in" : $"Database {armStatus}",
+        RunPhase.Starting => "Connecting",
+        RunPhase.Baseline => "Quiet before staff sign in",
         RunPhase.Load when load.Ramp is { } r && load.Started is { } s => RampStatus(r, DateTimeOffset.UtcNow - s),
-        RunPhase.Load => $"{load.Active} SQL workers active",
-        RunPhase.Cooldown => "Everyone has signed out · measuring CPU falling",
-        RunPhase.Complete => "Run complete · observation stopped; the database can auto-pause later",
-        _ => "Stopped on an error; samples shown are retained, not live",
+        RunPhase.Load => $"{load.Active} staff signed in",
+        RunPhase.Cooldown => "Everyone has signed out",
+        RunPhase.Complete => "Clinic day complete · the database can auto-pause later",
+        _ => "Stopped on an error",
     };
 
     private string RampStatus(WorkloadRamp ramp, TimeSpan elapsed)
     {
         var label = elapsed < ramp.PeakAt ? "Staff signing in"
             : elapsed < ramp.StopAt(ramp.PeakWorkers - 1) ? "Busy clinic" : "Staff signing out";
-        return $"{label} · {load.Active} of {ramp.PeakWorkers} SQL workers active";
+        return $"{label} · {load.Active} of {ramp.PeakWorkers} staff signed in";
     }
 
     private IEnumerable<ScaleSample[]> Segments()

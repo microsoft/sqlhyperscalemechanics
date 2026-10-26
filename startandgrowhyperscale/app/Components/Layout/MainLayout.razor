@@ -19,13 +19,6 @@
             }
             <NavLink href="/appointments" class="nav-item"><span class="nav-step">4</span>Search &amp; Book</NavLink>
         </nav>
-        <div class="topbar-right">
-            <span class="mode-chip">Serverless: @(IsIllustration ? "SCRIPTED ILLUSTRATION" : "SQL DMV") · Appointments: SQL</span>
-        </div>
-
-        @code {
-            private bool IsIllustration => Navigation.ToBaseRelativePath(Navigation.Uri).Split('?')[0].TrimEnd('/') == "serverless-illustration";
-        }
     </header>
     <main class="content">@Body</main>
 </div>

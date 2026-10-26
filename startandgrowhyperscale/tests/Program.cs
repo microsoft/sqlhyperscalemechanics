@@ -153,23 +153,20 @@ async Task<string> RenderAsync<T>() where T : IComponent =>
 var layout = await RenderAsync<MainLayout>();
 foreach (var route in new[] { "/network", "/verify", "/appointments" })
     Check(layout.Contains($"href=\"{route}\""), $"Navigation includes {route}");
-Check(layout.Contains("Serverless: SQL DMV"), "Layout identifies actual serverless metric source");
+Check(!layout.Contains("SQL DMV") && !layout.Contains("mode-chip"), "Header has no data-source or mode labels");
 var acquisition = await RenderAsync<Overview>();
 var patientAccess = await RenderAsync<Scale>();
 Check(!patientAccess.Contains("id=\"billing\"") && !patientAccess.Contains("Open Caldova database in Azure portal")
-    && !patientAccess.Contains("End of Part 1") && !patientAccess.Contains("Presenter setup"), "Measured page has no presenter or portal instructions");
-Check(patientAccess.Contains("Behind the chart") && patientAccess.Contains("HASHBYTES"), "Measured page shows the SQL workload behind the chart");
-Check(patientAccess.Contains("avg_cpu_percent × cpu_limit / 100") && patientAccess.Contains("sys.dm_db_resource_stats"), "SQL CPU calculation and source are disclosed");
-Check(patientAccess.Contains("▶ Run") && patientAccess.Contains("Missing samples are not filled with zeros")
-    && patientAccess.Contains("measured vCores") && !patientAccess.Contains("scripted vCores"), "Measured mode uses the shared scene and waits for actual SQL metrics");
-Check(patientAccess.Contains("prevent auto-pause") && patientAccess.Contains("VIEW DATABASE STATE"),
-    "Behind the chart discloses SQL observation keeps the database awake and requires SQL permission");
-Check(patientAccess.Contains("15-second") && patientAccess.Contains("55 minutes")
-    && patientAccess.Contains("chart does not use Azure Monitor"), "SQL chart discloses interval, retention window, and measurement source");
+    && !patientAccess.Contains("End of Part 1") && !patientAccess.Contains("Presenter setup"), "Patient Access has no presenter or portal instructions");
+Check(patientAccess.Contains("Behind the chart") && patientAccess.Contains("HASHBYTES"), "Patient Access shows the SQL workload behind the chart");
+Check(patientAccess.Contains("avg_cpu_percent × cpu_limit / 100") && patientAccess.Contains("sys.dm_db_resource_stats")
+    && patientAccess.Contains("15-second"), "CPU calculation, source, and interval are shown");
+Check(patientAccess.Contains("▶ Run") && patientAccess.Contains("vCores in use") && !patientAccess.Contains("scripted vCores"), "Patient Access uses the live scene");
+foreach (var label in new[] { "MEASURED", "measured vCores", "Measured.", "illustrative", "synthetic", "Azure status", "SQL DMV", "not allocated", "Gaps are not" })
+    Check(!patientAccess.Contains(label), $"Patient Access shows no '{label}' label");
 Check(!patientAccess.Contains("Next · Step 2"), "Serverless chapter ends independently");
-Check(patientAccess.Contains("staff online") && patientAccess.Contains("Each staff member is one SQL worker")
-    && patientAccess.Contains("illustrative entries") && !patientAccess.Contains("Press Play"), "Measured staff map to real workers; patient entries are disclosed as illustrative");
-Check(!patientAccess.Contains("<strong>Measured.</strong>"), "No Measured details box at the top");
+Check(patientAccess.Contains("staff online") && patientAccess.Contains("Each staff member runs this batch")
+    && !patientAccess.Contains("Press Play"), "Staff map to SQL connections");
 Check(patientAccess.Contains("Load generation is disabled"), "SQL load is opt-in");
 var illustration = await renderer.Dispatcher.InvokeAsync(async () => (await renderer.RenderComponentAsync<Scale>(
     ParameterView.FromDictionary(new Dictionary<string, object?> { ["ForceScripted"] = true }))).ToHtmlString());
@@ -198,7 +195,7 @@ Check(verify.Contains("Check network") && verify.Contains("caldova-network-pool"
 Check(!verify.Contains("portal.azure.com") && !verify.Contains("Open pool in Azure portal"), "Network page has no portal instructions");
 var appointments = await RenderAsync<Appointments>();
 Check(appointments.Contains("Find openings") && appointments.Contains("Search the entire network"), "Explicit local/network search");
-Check(appointments.Contains("Step 4") && appointments.Contains("UTC"), "Search shows scenario step and timezone");
+Check(appointments.Contains("Step 4") && !appointments.Contains("synthetic") && !appointments.Contains("Real SQL"), "Search shows scenario step without data-source labels");
 Check(!appointments.Contains("No openings"), "Initial render does not pretend SQL ran");
 Check(!appointments.Contains("Search Caldova alone first") && !appointments.Contains("Back ·"), "Search page has no presenter hints");
 

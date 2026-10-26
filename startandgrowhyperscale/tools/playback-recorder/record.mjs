@@ -196,7 +196,7 @@ const clips = {
       await sleep(3000);
       await wander(page, [[560, 450], [1200, 500]], 700);
       await click(page, page.getByRole('button', { name: /Run/ }));
-      await text(page, 'Measured run complete').waitFor({ timeout: 15 * 60_000 });
+      await text(page, 'Clinic day complete').waitFor({ timeout: 15 * 60_000 });
       await sleep(4000);
       await click(page, page.getByText('Behind the chart · SQL workload and samples'));
       await sleep(600);
