@@ -174,8 +174,8 @@ Check(illustration.Contains("SCRIPTED ILLUSTRATION") && illustration.Contains("N
 Check(illustration.Contains("runs no SQL workload") && illustration.Contains("generates no billing evidence"), "Fallback claims no real load or billing");
 Check(illustration.Contains("app_cpu_percent") && illustration.Contains("app_cpu_billed")
     && illustration.Contains("Open Caldova database in Azure portal"), "Fallback still requires real portal metrics");
-Check(patientAccess.Contains("href=\"/serverless-illustration\"") && illustration.Contains("href=\"/\"")
-    && illustration.Contains("scripted vCores") && !illustration.Contains("measured vCores"), "Scripted/Measured switch is explicit, reversible, and labels the active mode");
+Check(!patientAccess.Contains("href=\"/serverless-illustration\"") && !illustration.Contains(">Measured<")
+    && illustration.Contains("scripted vCores") && !illustration.Contains("measured vCores"), "No Scripted/Measured buttons; the illustration (by URL only) still labels its mode");
 var scriptOptions = new ServerlessScriptOptions();
 Check(scriptOptions.MinVCores + scriptOptions.PeakUsers * scriptOptions.VCoresPerUser == 4
     && scriptOptions.MaxVCores == 8, "Illustration peaks at 4 used vCores without changing the 8-vCore maximum");

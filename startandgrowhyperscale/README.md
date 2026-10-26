@@ -249,8 +249,9 @@ App Service publication are separate unverified gates.
 
 #### Unified Patient Access page, pause, and resume (source; local only)
 
-Patient Access is one page with **Scripted** (`/serverless-illustration`) and
-**Measured** (`/`) modes and a single **Run** button. Both modes render the same
+Patient Access (`/`) is the measured page with a single **Run** button; the
+scripted illustration has no on-page button and is reached only by URL
+(`/serverless-illustration`). Both render the same
 staff avatars, KPI tiles, live schedule, and vCore panel. In Measured mode,
 staff online equals the actual number of active SQL workers, schedule entries
 are labeled illustrative and advance only while SQL batches complete, and the
@@ -654,18 +655,33 @@ Azure and SQL dependency replaced by in-memory stand-ins
 
 The playback mode shows no on-screen marker. Disclose in narration that these segments are scripted.
 
-[tools/playback-recorder](tools/playback-recorder) records each sequence to its own
-1920×1080 MP4 (125% zoom, visible pointer and click ripples) using your installed Edge:
+[tools/playback-recorder](tools/playback-recorder) records each sequence to its own native
+4K (3840×2160) MP4 at 125% zoom using your installed Edge. Pages are captured at full
+resolution (about 9 fps on a typical machine; numbers and charts update at that rate), and the
+pointer and click ripples are drawn in at 25 fps from the recorded pointer track:
 
 ```powershell
 cd app; dotnet run --launch-profile playback          # terminal 1
 cd tools\playback-recorder; npm install; node record.mjs   # terminal 2
 ```
 
-Clips land in `tools\playback-recorder\clips` (gitignored): `p1-run`, `p1-paused`,
-`p1-resume`, `p2-acquisitions`, `p2-verify`, `p2-scale`, `p2-growth`, `p2-search-book`.
-Pass clip names to record a subset; `p2-growth` continues `p2-scale`. Restart the app
-between full recordings to reset bookings and pool state.
+Clips land in `tools\playback-recorder\clips` (gitignored), numbered in play order:
+
+| # | File | Scene |
+|---|---|---|
+| 01 | `01-p1-run.mp4` | Part 1 scene 3 · measured run |
+| 02 | `02-p1-paused.mp4` | Part 1 scene 4 · paused |
+| 03 | `03-p1-resume.mp4` | Part 1 scene 5 · sign in (resume) |
+| 04 | `04-p2-acquisitions.mp4` | Part 2 take 7 · acquisitions |
+| 05 | `05-p2-verify.mp4` | Part 2 take 9 · check cross-database reads |
+| 06 | `06-p2-scale.mp4` | Part 2 take 10 · scale the pool under workload |
+| 07 | `07-p2-growth.mp4` | Part 2 take 11 · storage growth |
+| 08 | `08-p2-search-book.mp4` | Part 2 take 12 · search and book |
+
+Portal and Copilot segments go between them as in the recording script (for example,
+the Copilot pool move between 04 and 05). Pass clip names (without the number) to
+record a subset; `p2-growth` continues `p2-scale`. Restart the app between full
+recordings to reset bookings and pool state.
 
 ## Run locally
 

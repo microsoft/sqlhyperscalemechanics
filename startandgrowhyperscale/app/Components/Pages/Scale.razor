@@ -20,15 +20,6 @@
     <div class="transport">
         @if (Busy)
         {
-            <span class="btn btn-secondary" aria-disabled="true">@(scripted ? "Scripted" : "Measured")</span>
-        }
-        else
-        {
-            <NavLink class="btn btn-secondary" href="/serverless-illustration" Match="NavLinkMatch.All">Scripted</NavLink>
-            <NavLink class="btn btn-secondary" href="/" Match="NavLinkMatch.All">Measured</NavLink>
-        }
-        @if (Busy)
-        {
             <button class="btn btn-primary btn-play" @onclick="StopAsync">■ Stop</button>
         }
         else

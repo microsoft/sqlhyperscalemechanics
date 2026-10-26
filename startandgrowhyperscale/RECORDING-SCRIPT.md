@@ -37,7 +37,7 @@ until it has had no connections for at least 60 minutes (Hyperscale minimum).
 |---|---|---|
 | 1 | **Beat 1.1 - Portal choices.** Portal > Create SQL Database. Show Hyperscale, Serverless vs Provisioned, min/max vCores, region, zone redundancy, networking, Entra auth. Do not click Create. | Rehearse |
 | 2 | **Beat 1.2 - Copilot sizing and deployment.** Flip to VS Code. In the Copilot chat, use the runbook prompt and requirements. Copilot recommends Hyperscale serverless 1-8 vCores, 60-min auto-pause, shows the `-WhatIf` plan; approve; it deploys `sql-caldova-start-0efc44` / `caldova-scheduling` and verifies (about 8 min; time-lapse with disclosure). | Ready for the script (deploy ran 7.7 min and verified 2026-10-25; Copilot conversation not yet rehearsed). Server deleted again so the on-camera deploy is real. |
-| 3 | **Beat 1.3 - Measured run.** App Step 1, **Measured**, click **Run** (about 10 min). Staff sign in, vCores climb to about 6-7 in under 2 min, hold 1 min, then fall slowly; polling stops on its own. Record in full or as a disclosed time-lapse. | Ready (2026-10-25: peak 7.48 measured vCores ~2.5 min in) |
+| 3 | **Beat 1.3 - Measured run.** App Step 1, click **Run** (about 10 min). Staff sign in, vCores climb to about 6-7 in under 2 min, hold 1 min, then fall slowly; polling stops on its own. Record in full or as a disclosed time-lapse. | Ready (2026-10-25: peak 7.48 measured vCores ~2.5 min in) |
 | - | **Wait (off camera).** Leave the page open; touch nothing that connects to SQL. About 61 minutes after the run ends, Azure pauses the database. | Ready (paused ~60 min after the run) |
 | 4 | **Paused.** The page turns grey: "Paused - no compute charges", readout 0.00, "Clinics are quiet". | Ready |
 | - | **Wait at least 10 minutes after the pause** before take 5, so the billing chart shows a clear gap. | - |
@@ -49,8 +49,8 @@ Say for take 6: "When the database pauses, compute billing stops - there are no
 bars at all - and it picks back up on the next sign-in." Paused minutes have no
 billing value; the chart shows a gap, not a zero.
 
-**End of Part 1.** Optional fallback: the **Scripted** toggle plays the
-labeled 70-second illustration (no SQL) if a live take fails.
+**End of Part 1.** Optional fallbacks: browse to `/serverless-illustration` for the
+labeled 70-second illustration (no SQL), or use the backup clips 01-03.
 
 ## Part 2 - Grow without redesigning
 
