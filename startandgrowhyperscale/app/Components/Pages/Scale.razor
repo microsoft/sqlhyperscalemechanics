@@ -43,12 +43,6 @@
 }
 else
 {
-    <div class="callout callout-info">
-        <strong>Measured.</strong> vCores are actual <code>sys.dm_db_resource_stats</code> intervals. No generated samples.
-        Staff online equals the actual number of active SQL workers; patient names and schedule entries are illustrative
-        and advance only while SQL batches complete. A run connects to SQL: it can resume the database, incurs compute charges,
-        and keeps the database awake until cooldown ends.
-    </div>
     @if (!Workload.Enabled) { <p class="callout callout-info">Load generation is disabled on this deployment.</p> }
 }
 @if (snap.IsComplete)

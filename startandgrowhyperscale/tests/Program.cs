@@ -160,15 +160,16 @@ Check(!patientAccess.Contains("id=\"billing\"") && !patientAccess.Contains("Open
     && !patientAccess.Contains("End of Part 1") && !patientAccess.Contains("Presenter setup"), "Measured page has no presenter or portal instructions");
 Check(patientAccess.Contains("Behind the chart") && patientAccess.Contains("HASHBYTES"), "Measured page shows the SQL workload behind the chart");
 Check(patientAccess.Contains("avg_cpu_percent × cpu_limit / 100") && patientAccess.Contains("sys.dm_db_resource_stats"), "SQL CPU calculation and source are disclosed");
-Check(patientAccess.Contains("▶ Run") && patientAccess.Contains("No generated samples")
+Check(patientAccess.Contains("▶ Run") && patientAccess.Contains("Missing samples are not filled with zeros")
     && patientAccess.Contains("measured vCores") && !patientAccess.Contains("scripted vCores"), "Measured mode uses the shared scene and waits for actual SQL metrics");
 Check(patientAccess.Contains("prevent auto-pause") && patientAccess.Contains("VIEW DATABASE STATE"),
-    "Initial view discloses SQL observation keeps the database awake and requires SQL permission");
+    "Behind the chart discloses SQL observation keeps the database awake and requires SQL permission");
 Check(patientAccess.Contains("15-second") && patientAccess.Contains("55 minutes")
     && patientAccess.Contains("chart does not use Azure Monitor"), "SQL chart discloses interval, retention window, and measurement source");
 Check(!patientAccess.Contains("Next · Step 2"), "Serverless chapter ends independently");
-Check(patientAccess.Contains("staff online") && patientAccess.Contains("Staff online equals the actual number of active SQL workers")
-    && patientAccess.Contains("schedule entries are illustrative") && !patientAccess.Contains("Press Play"), "Measured staff map to real workers; patient entries are disclosed as illustrative");
+Check(patientAccess.Contains("staff online") && patientAccess.Contains("Each staff member is one SQL worker")
+    && patientAccess.Contains("illustrative entries") && !patientAccess.Contains("Press Play"), "Measured staff map to real workers; patient entries are disclosed as illustrative");
+Check(!patientAccess.Contains("<strong>Measured.</strong>"), "No Measured details box at the top");
 Check(patientAccess.Contains("Load generation is disabled"), "SQL load is opt-in");
 var illustration = await renderer.Dispatcher.InvokeAsync(async () => (await renderer.RenderComponentAsync<Scale>(
     ParameterView.FromDictionary(new Dictionary<string, object?> { ["ForceScripted"] = true }))).ToHtmlString());
