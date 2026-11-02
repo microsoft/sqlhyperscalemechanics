@@ -27,6 +27,7 @@ if (args is ["--rehearse-pool"])
 var builder = WebApplication.CreateBuilder(args);
 
 var demoMode = builder.Configuration["Demo:Mode"] ?? "Measured";
+var serverlessRecording = ServerlessRecordingSettings.Read(builder.Configuration, builder.Environment.ContentRootPath);
 PoolScaler.ValidateHost(builder.Configuration);
 if (!string.Equals(demoMode, "Measured", StringComparison.OrdinalIgnoreCase))
 {
@@ -43,6 +44,8 @@ builder.Services.AddSingleton<PoolClinicClientFactory>();
 builder.Services.AddSingleton<PoolScheduling>();
 builder.Services.AddSingleton<PoolStorage>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSingleton(serverlessRecording);
+builder.Services.AddScoped<ServerlessRunRecording>();
 builder.Services.AddScoped<PoolPresentation>();
 
 // Playback replaces every Azure and SQL dependency with in-memory stand-ins for recording backup clips.
@@ -83,7 +86,9 @@ if (!app.Environment.IsDevelopment())
 app.UseStaticFiles();
 app.UseAntiforgery();
 
-app.MapGet("/healthz", () => Results.Json(new { status = "ok", mode = "measured", serverless = "sql-dmv", appointments = "sql",
+app.MapGet("/healthz", () => Results.Json(new { status = "ok", mode = serverlessRecording.IsReplay ? "replay" : "measured",
+    serverless = serverlessRecording.IsReplay ? "saved-sql-dmv" : "sql-dmv", appointments = "sql",
+    serverlessCapture = serverlessRecording.CaptureEnabled,
     poolPresentation = builder.Configuration.GetValue<bool>("PoolPresentation:Enabled") ? "illustration" : "disabled" }));
 
 app.MapRazorComponents<App>()

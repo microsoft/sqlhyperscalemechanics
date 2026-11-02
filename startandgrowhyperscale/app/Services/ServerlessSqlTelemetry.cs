@@ -13,6 +13,7 @@ public sealed record ServerlessCpuSample(DateTimeOffset At, double CpuPercent, d
 
 public class ServerlessSqlTelemetry(IConfiguration configuration)
 {
+    public static readonly TimeSpan SampleInterval = TimeSpan.FromSeconds(15);
     protected virtual SqlConnection CreateConnection(string connectionString) => new(connectionString);
     protected virtual int CommandTimeoutSeconds => 15;
     public virtual async Task<IReadOnlyList<ServerlessCpuSample>> ReadAsync(

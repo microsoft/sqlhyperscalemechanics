@@ -8,6 +8,7 @@
 @inject ServerlessResume Resume
 @inject NavigationManager Navigation
 @inject ILogger<Scale> Logger
+@inject ServerlessRunRecording Recording
 
 <PageTitle>Patient Access · Caldova</PageTitle>
 
@@ -24,17 +25,17 @@
         }
         else
         {
-            <button class="btn btn-primary btn-play" disabled="@(!scripted && (!Workload.Enabled || resuming))" @onclick="Run">▶ Run</button>
-            @if (!scripted)
+            <button class="btn btn-primary btn-play" disabled="@(savingCapture || !scripted && !replaying && (!Workload.Enabled || resuming))" @onclick="Run">▶ Run</button>
+            @if (!scripted && !replaying)
             {
-                <button class="btn btn-secondary" disabled="@resuming" @onclick="ResumeAsync">⏻ Sign in (resume)</button>
+                <button class="btn btn-secondary" disabled="@(resuming || savingCapture)" @onclick="ResumeAsync">⏻ Sign in (resume)</button>
             }
         }
-        <button class="btn btn-secondary" disabled="@(Busy || resuming)" @onclick="Reset">↺ Reset</button>
+        <button class="btn btn-secondary" disabled="@(Busy || resuming || savingCapture)" @onclick="Reset">↺ Reset</button>
     </div>
 </section>
 
-@if (!scripted)
+@if (!scripted && !replaying)
 {
     @if (!Workload.Enabled) { <p class="callout callout-info">Load generation is disabled on this deployment.</p> }
 }
@@ -42,7 +43,7 @@
 {
     <div class="callout callout-done">
         <strong>@(scripted ? "Scene complete." : "Clinic day complete.")</strong>
-        @(scripted ? "Busy morning, quiet midday, auto-pause, and back online for the afternoon clinic." : "Staff signed in, CPU rose, staff signed out, and CPU fell.")
+        @(scripted ? "Busy morning, quiet midday, auto-pause, and back online for the afternoon clinic." : replaying ? "Staff activity complete." : "Workload finished. CPU readings retain their recorded intervals.")
     </div>
 }
 @if (error is not null) { <p class="callout callout-error" role="alert">@error</p> }
@@ -57,14 +58,27 @@
                     <small>Caldova Health scheduling</small>
                 </div>
             </div>
-            <div class="app-clock">
-                <small>@(scripted ? "Today" : "Elapsed")</small>
-                <strong>@(scripted ? snap.SimulatedTime.ToString("h:mm tt", CultureInfo.InvariantCulture) : ElapsedTime)</strong>
-            </div>
+            @if (!replaying)
+            {
+                <div class="app-clock">
+                    <small>@(scripted ? "Today" : "Elapsed")</small>
+                    <strong>@(scripted ? snap.SimulatedTime.ToString("h:mm tt", CultureInfo.InvariantCulture) : ElapsedTime)</strong>
+                </div>
+            }
         </div>
 
         <div class="online-row">
-            <span class="online-label"><strong>@snap.ActiveUsers</strong> staff online</span>
+            <span class="online-label">
+                @if (SigningOutWithCpu)
+                {
+                    <strong>Staff signing out</strong>
+                }
+                else
+                {
+                    <strong>@snap.ActiveUsers</strong>
+                    <span>staff online</span>
+                }
+            </span>
             <div class="avatars">
                 @foreach (var u in snap.Users)
                 {
@@ -81,7 +95,7 @@
 
         <div class="board">
             <div class="board-heading">
-                <h2>Live schedule</h2>
+                <h2>@(HistoricalCpu ? "Recorded schedule" : "Live schedule")</h2>
                 <span class="muted">Newest first</span>
             </div>
             @if (snap.Status is ServerlessStatus.Paused or ServerlessStatus.IdleAwaitingPause or ServerlessStatus.Resuming || snap.Activity.Count == 0)
@@ -98,14 +112,14 @@
                         <strong>Clinics are quiet</strong>
                         <span>No one is signed in. The database has paused and resumes on the next sign-in.</span>
                     }
-                    else if (snap.Status == ServerlessStatus.IdleAwaitingPause || snap.IsComplete)
+                    else if (snap.Status == ServerlessStatus.IdleAwaitingPause || snap.IsComplete && snap.ActiveUsers == 0 && snap.VCores == 0)
                     {
                         <strong>Everyone has signed out</strong>
                         <span>The schedule is saved. Nothing is running.</span>
                     }
-                    else if (snap.IsRunning)
+                    else if (snap.IsRunning || snap.ActiveUsers > 0)
                     {
-                        <strong>Clinics are opening</strong>
+                        <strong>@(scripted ? "Clinics are opening" : "Staff activity")</strong>
                         <span>@(scripted ? "The first staff are signing in." : StatusDetail)</span>
                     }
                     else
@@ -143,13 +157,19 @@
 
         <div class="vcore-readout">
             <strong>@Readout</strong>
-            <span>@(scripted ? "vCores in use (CPU)" : snap.Status == ServerlessStatus.Paused ? "paused" : AwaitingCpu ? "minimum vCores" : "vCores in use (CPU)")</span>
+            <span>@(scripted ? "vCores in use (CPU)" : snap.Status == ServerlessStatus.Paused ? "paused" : AwaitingCpu && !replaying ? "minimum vCores" : HistoricalCpu ? "last CPU used (vCores)" : "vCores in use (CPU)")</span>
         </div>
         <div class="gauge" title="@F(snap.MinVCores)–@F(snap.MaxVCores) vCores">
-            <div class="gauge-fill" style="width:@F(Math.Min(100, DisplayVCores / snap.MaxVCores * 100))%"></div>
-            <div class="gauge-min" style="left:@F(snap.MinVCores / snap.MaxVCores * 100)%"></div>
+            <div class="gauge-fill" style="width:@F(GaugePercent(DisplayVCores))%"></div>
         </div>
-        <div class="gauge-scale"><span>0</span><span>min @F(snap.MinVCores)</span><span>max @F(snap.MaxVCores)</span></div>
+        <div class="gauge-scale" aria-label="CPU used in vCores">
+            @foreach (var tick in GaugeTicks)
+            {
+                <span class="gauge-tick @(tick == snap.MaxVCores ? "gauge-tick-last" : "")"
+                      data-vcores="@F(tick)" style="left:@F(GaugePercent(tick))%">@F(tick)</span>
+            }
+        </div>
+        <div class="gauge-range">Configured compute: @F(snap.MinVCores) - @F(snap.MaxVCores) vCores</div>
 
         <svg class="spark" viewBox="0 0 @SW @SH" preserveAspectRatio="none" aria-label="@(scripted ? "CPU usage in vCores" : "Measured SQL CPU used in average vCores")">
             @{
@@ -222,11 +242,17 @@ else
 
     private enum RunPhase { Ready, Starting, Load, Cooldown, Complete, Stopped, Failed }
     private const double SW = 300, SH = 110;
-    // SQL publishes each 15-second interval after it closes, so cooldown waits long enough to capture the fall to zero.
+    private static readonly WorkloadRamp RunRamp = new(10, TimeSpan.FromSeconds(15),
+        TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(15), WorkersPerStepDown: 2, WorkerLevels: [1, 2, 6, 10]);
+    private static readonly TimeSpan RunCooldown = TimeSpan.FromSeconds(30);
+    // Keep post-resume observation separate from the Run timeline.
     private static readonly TimeSpan Cooldown = TimeSpan.FromSeconds(75);
     private static readonly TimeSpan ResumeActivity = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SamplePollInterval = TimeSpan.FromSeconds(3);
     private const int ResumeWorkers = 4;
+    private IEnumerable<double> GaugeTicks => new[] { snap.MinVCores, snap.MaxVCores / 4,
+        snap.MaxVCores * 3 / 4, snap.MaxVCores }.Distinct().Order();
+    private double GaugePercent(double value) => Math.Clamp(value / snap.MaxVCores * 100, 0, 100);
 
     private readonly CancellationTokenSource lifetime = new();
     private readonly MeasuredClinicScene scene = new();
@@ -238,14 +264,11 @@ else
     private Task? polling;
     private Task? ticking;
     private RunPhase phase = RunPhase.Ready;
-    private int workers = 8;
-    private int stepSeconds = 10;
-    private int holdSeconds = 55;
-    private int stepDownSeconds = 10;
     private ServerlessConfiguration? database;
     private DateTimeOffset? runStart;
     private DateTimeOffset? elapsedStart;
-    private TimeSpan planned = TimeSpan.FromMinutes(4.5);
+    private DateTimeOffset? elapsedEnd;
+    private TimeSpan planned = RunRamp.Total + RunCooldown;
     private string? error;
     private IReadOnlyList<ServerlessCpuSample> samples = [];
     private SqlWorkloadSnapshot load = new(false, 0, 0, 0, null, null, null);
@@ -254,11 +277,17 @@ else
     private bool resuming;
     private int resumeAttempt;
     private ResumeResult? resumed;
-    private bool resumeActivity;
     private bool stopping;
     private Task? statusLoop;
+    private bool savingCapture;
+    private SavedServerlessFrame? replayFrame;
+    private bool replaying => !scripted && Recording.IsReplay;
 
-    private bool Busy => scripted ? snap.IsRunning : stopping || phase is RunPhase.Starting or RunPhase.Load or RunPhase.Cooldown;
+    private bool Busy => scripted ? snap.IsRunning : replaying ? Recording.IsPlaying
+        : stopping || phase is RunPhase.Starting or RunPhase.Load or RunPhase.Cooldown;
+
+    private bool SigningOutWithCpu => !scripted && !resuming && snap.Status != ServerlessStatus.Paused
+        && snap.ActiveUsers == 0 && snap.VCores > 0 && (Busy || snap.IsComplete);
 
     protected override void OnInitialized()
     {
@@ -268,7 +297,7 @@ else
 
     protected override void OnAfterRender(bool firstRender)
     {
-        if (firstRender) statusLoop = AzureStatusLoopAsync();
+        if (firstRender && !replaying) statusLoop = AzureStatusLoopAsync();
     }
 
     protected override void OnParametersSet()
@@ -284,8 +313,35 @@ else
         Refresh();
     }
 
-    private void Refresh() => snap = scripted ? Script.GetSnapshot() : scene.Snapshot(
-        Busy, phase == RunPhase.Complete, DateTimeOffset.UtcNow, runStart, planned, samples, database, StatusDetail, AzureStatus);
+    private void Refresh()
+    {
+        if (replaying)
+        {
+            replayFrame = Recording.GetReplayFrame();
+            snap = replayFrame.Scene;
+            samples = Recording.ReplaySamples(replayFrame.CpuSampleCount);
+            elapsedStart = Recording.ReplayOrigin;
+            load = new(false, 0, replayFrame.CompletedBatches, 0, null, null, null);
+            return;
+        }
+        if (!scripted && elapsedStart is not null && !Busy && !resuming)
+            elapsedEnd ??= DateTimeOffset.UtcNow;
+        if (!scripted && AzureStatus == ServerlessStatus.Paused)
+            scene.Update(DateTimeOffset.UtcNow, 0, load.Completed);
+        else if (!scripted && !resuming && phase is RunPhase.Load or RunPhase.Cooldown or RunPhase.Complete && samples.Count > 0)
+            scene.Present(samples[^1]);
+        snap = scripted ? Script.GetSnapshot() : scene.Snapshot(
+            Busy, phase == RunPhase.Complete, DateTimeOffset.UtcNow, runStart, planned, samples, database, StatusDetail, AzureStatus);
+        if (!scripted && Busy && !resuming && samples.Count == 0)
+            snap = MeasuredClinicScene.InitialView(snap);
+        if (!scripted && Recording.IsCapturing)
+            Recording.Record(DateTimeOffset.UtcNow, snap, samples, CpuIntervalEnd, AwaitingCpu, load.Completed);
+    }
+
+    private DateTimeOffset? CpuIntervalEnd => replaying ? replayFrame?.CpuIntervalEnd : !scripted && !resuming
+        && AzureStatus is not (ServerlessStatus.Paused or ServerlessStatus.Resuming)
+        && phase is RunPhase.Load or RunPhase.Cooldown or RunPhase.Complete
+        && samples.Count > 0 && scene.IntervalEnd == samples[^1].At ? scene.IntervalEnd : null;
 
     // Azure management status (no SQL connection) drives Paused/Resuming outside a measured run.
     private ServerlessStatus? AzureStatus => resuming ? ServerlessStatus.Resuming
@@ -298,14 +354,17 @@ else
         };
 
     private static double RoundVCores(double value) => Math.Ceiling(value * 4) / 4;
-    private bool AwaitingCpu => !scripted && Busy && samples.Count == 0;
+    private bool HistoricalCpu => !scripted && !replaying && !Busy && !resuming && samples.Count > 0
+        && snap.Status != ServerlessStatus.Paused;
+    private bool AwaitingCpu => replaying ? samples.Count == 0 : !scripted && Busy && samples.Count == 0;
     private double DisplayVCores => snap.Status == ServerlessStatus.Paused ? 0
-        : AwaitingCpu ? snap.MinVCores : RoundVCores(snap.VCores);
+        : AwaitingCpu ? replaying ? 0 : snap.MinVCores : RoundVCores(snap.VCores);
     private string Readout => snap.Status == ServerlessStatus.Paused ? "0.00"
         : !scripted && samples.Count == 0 && !AwaitingCpu ? "–"
         : DisplayVCores.ToString("0.00", CultureInfo.InvariantCulture);
 
-    private string ElapsedTime => elapsedStart is null ? "00:00:00" : ElapsedAt(DateTimeOffset.UtcNow);
+    private string ElapsedTime => replaying ? FormatElapsed(Recording.SourceSeconds)
+        : elapsedStart is null ? "00:00:00" : ElapsedAt(elapsedEnd ?? DateTimeOffset.UtcNow);
     private string ElapsedAt(DateTimeOffset at) => elapsedStart is { } start
         ? FormatElapsed((at - start).TotalSeconds) : "–";
     private string ActivityTime(AppActivity activity) => scripted
@@ -325,7 +384,7 @@ else
         {
             do
             {
-                if (scripted || Busy) continue;
+                if (scripted || replaying || Busy) continue;
                 try
                 {
                     var current = await Monitor.ReadConfigurationAsync(lifetime.Token);
@@ -348,11 +407,11 @@ else
 
     private async Task ResumeAsync()
     {
-        if (scripted || Busy || resuming) return;
+        if (scripted || replaying || Busy || resuming || savingCapture) return;
         elapsedStart ??= DateTimeOffset.UtcNow;
+        elapsedEnd = null;
         error = null;
         resumed = null;
-        resumeActivity = false;
         resumeAttempt = 0;
         resuming = true;
         scene.Reset();
@@ -378,7 +437,7 @@ else
                 run?.Dispose();
                 run = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                 Workload.Start(current, ResumeWorkers, ResumeActivity);
-                resumeActivity = true;
+                scene.Observe(DateTimeOffset.UtcNow, Workload.Snapshot);
                 phase = RunPhase.Load;
                 polling = PollAsync(activityStart, run.Token, previousSamples);
                 runTask = CompleteResumeActivityAsync(run.Token);
@@ -408,14 +467,18 @@ else
     private void Run()
     {
         if (scripted) { Script.Play(); Refresh(); return; }
-        if (Busy) return;
-        WorkloadRamp ramp = new(workers, TimeSpan.FromSeconds(stepSeconds), TimeSpan.FromSeconds(holdSeconds), TimeSpan.FromSeconds(stepDownSeconds));
+        if (replaying) { Recording.Play(); Refresh(); return; }
+        if (Busy || savingCapture) return;
+        var ramp = RunRamp;
         try { ramp.Validate(); }
         catch (ArgumentOutOfRangeException ex) { error = ex.Message; return; }
         ResetMeasured();
+        armStatus = null;
+        armCheckedAt = null;
         phase = RunPhase.Starting;
         runStart = elapsedStart = DateTimeOffset.UtcNow;
-        planned = ramp.Total + Cooldown;
+        if (Recording.CaptureEnabled) Recording.Begin(runStart.Value);
+        planned = ramp.Total + RunCooldown;
         run = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         polling = PollAsync(runStart.Value, run.Token);
         runTask = OrchestrateAsync(ramp, run.Token);
@@ -425,8 +488,10 @@ else
     private async Task StopAsync()
     {
         if (scripted) { Script.Pause(); Refresh(); return; }
+        if (replaying) { Recording.Pause(); Refresh(); return; }
         if (stopping) return;
         stopping = true;
+        Recording.Abort();
         try
         {
             run?.Cancel();
@@ -434,7 +499,6 @@ else
             if (runTask is not null) await runTask;
             if (polling is not null) await polling;
             load = Workload.Snapshot;
-            resumeActivity = false;
             scene.Update(DateTimeOffset.UtcNow, 0, load.Completed);
             if (phase is not RunPhase.Failed) phase = RunPhase.Stopped;
         }
@@ -447,24 +511,27 @@ else
 
     private void Reset()
     {
-        if (Busy) return;
-        if (scripted) Script.Reset(); else ResetMeasured();
+        if (Busy || savingCapture) return;
+        if (scripted) Script.Reset();
+        else if (replaying) Recording.Reset();
+        else ResetMeasured();
         Refresh();
     }
 
     private void ResetMeasured()
     {
+        Recording.Abort();
         run?.Cancel();
         run?.Dispose();
         run = null;
         phase = RunPhase.Ready;
         error = null;
         resumed = null;
-        resumeActivity = false;
         samples = [];
         database = null;
         runStart = null;
         elapsedStart = null;
+        elapsedEnd = null;
         scene.Reset();
     }
 
@@ -475,12 +542,13 @@ else
             while (database is null) await Task.Delay(250, token);
             token.ThrowIfCancellationRequested();
             Workload.StartRamp(database, ramp);
+            scene.Observe(DateTimeOffset.UtcNow, Workload.Snapshot);
             phase = RunPhase.Load;
             while (Workload.Snapshot.Running) await Task.Delay(500, token);
             if (Workload.Snapshot.Error is { } failure)
                 throw new InvalidOperationException($"SQL workload failed; no retry performed: {failure}");
             phase = RunPhase.Cooldown;
-            await Task.Delay(Cooldown, token);
+            await Task.Delay(RunCooldown, token);
             phase = RunPhase.Complete;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -499,6 +567,30 @@ else
             if (polling is not null) await polling;
             load = Workload.Snapshot;
             if (!lifetime.IsCancellationRequested) await InvokeAsync(() => { Refresh(); StateHasChanged(); });
+            if (phase == RunPhase.Complete && Recording.IsCapturing && !lifetime.IsCancellationRequested)
+            {
+                savingCapture = true;
+                try
+                {
+                    await InvokeAsync(StateHasChanged);
+                    await Recording.SaveAsync(lifetime.Token);
+                    Logger.LogInformation("Saved completed serverless Run");
+                }
+                catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { Recording.Abort(); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+                    or System.Text.Json.JsonException)
+                {
+                    Recording.Abort();
+                    Logger.LogError(ex, "Saving the completed serverless Run failed");
+                    Fail($"Run finished, but saving failed: {ex.Message}. Any previous saved run was preserved.");
+                }
+                finally
+                {
+                    savingCapture = false;
+                    if (!lifetime.IsCancellationRequested) await InvokeAsync(() => { Refresh(); StateHasChanged(); });
+                }
+            }
+            else Recording.Abort();
         }
     }
 
@@ -529,7 +621,6 @@ else
             if (polling is not null) await polling;
             load = Workload.Snapshot;
             scene.Update(DateTimeOffset.UtcNow, 0, load.Completed);
-            resumeActivity = false;
             if (!lifetime.IsCancellationRequested) await InvokeAsync(() => { Refresh(); StateHasChanged(); });
         }
     }
@@ -566,6 +657,7 @@ else
 
     private void Fail(string message)
     {
+        Recording.Abort();
         error = message;
         phase = RunPhase.Failed;
     }
@@ -578,9 +670,15 @@ else
             while (await timer.WaitForNextTickAsync(lifetime.Token))
             {
                 if (scripted) continue;
-                load = Workload.Snapshot;
-                if (Busy) scene.Update(DateTimeOffset.UtcNow, load.Active, load.Completed);
-                await InvokeAsync(() => { if (disposed) return; Refresh(); StateHasChanged(); });
+                await InvokeAsync(() =>
+                {
+                    if (disposed) return;
+                    if (replaying) { Refresh(); StateHasChanged(); return; }
+                    load = Workload.Snapshot;
+                    if (Busy) scene.Observe(DateTimeOffset.UtcNow, load);
+                    Refresh();
+                    StateHasChanged();
+                });
             }
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
@@ -595,7 +693,7 @@ else
         _ => "Online",
     };
 
-    private string StatusDetail => resuming
+    private string StatusDetail => replaying ? snap.StatusDetail : resuming
         ? $"First sign-in is waking the database · attempt {resumeAttempt}, retrying automatically"
         : phase switch
     {
@@ -605,23 +703,14 @@ else
             $"First sign-in completed in {r.Elapsed.TotalSeconds:0.#} s · database {armStatus ?? "Online"}",
         RunPhase.Ready => armStatus is null ? "Waiting for the first sign-in" : $"Database {armStatus}",
         RunPhase.Starting => "Connecting",
-        RunPhase.Load when resumeActivity && resumed is { } r =>
-            $"First sign-in completed in {r.Elapsed.TotalSeconds:0.#} s · {load.Active} staff working for 30 seconds",
-        RunPhase.Load when load.Ramp is { } r && load.Started is { } s => RampStatus(r, DateTimeOffset.UtcNow - s),
-        RunPhase.Load => $"{load.Active} staff signed in",
-        RunPhase.Cooldown when resumeActivity => "Afternoon activity finished · observing CPU cooldown",
-        RunPhase.Cooldown => "Everyone has signed out",
+        RunPhase.Load or RunPhase.Cooldown or RunPhase.Complete when CpuIntervalEnd is not null
+            && scene.IntervalStatus is { } detail => detail,
+        RunPhase.Load or RunPhase.Cooldown when samples.Count == 0 => "Staff signing in",
+        RunPhase.Load or RunPhase.Cooldown => scene.CurrentStaffStatus,
         RunPhase.Complete => "Clinic day complete · the database can auto-pause later",
-        RunPhase.Stopped => "Stopped · workload and observation ended",
+        RunPhase.Stopped => "Stopped · showing recorded activity and the last CPU sample",
         _ => "Stopped on an error",
     };
-
-    private string RampStatus(WorkloadRamp ramp, TimeSpan elapsed)
-    {
-        var label = elapsed < ramp.PeakAt ? "Staff signing in"
-            : elapsed < ramp.StopAt(ramp.PeakWorkers - 1) ? "Busy clinic" : "Staff signing out";
-        return $"{label} · {load.Active} of {ramp.PeakWorkers} staff signed in";
-    }
 
     private IEnumerable<ScaleSample[]> Segments()
     {
@@ -652,7 +741,9 @@ else
         Script.Pause();
         lifetime.Cancel();
         if (runTask is not null) await runTask;
-        await Workload.StopAsync();
+        if (replaying) Recording.Pause();
+        else await Workload.StopAsync();
+        Recording.Abort();
         if (ticking is not null) await ticking;
         if (statusLoop is not null) await statusLoop;
         run?.Dispose();

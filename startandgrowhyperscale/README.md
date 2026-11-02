@@ -347,6 +347,111 @@ The top navigation is numbered in story order.
 
 ## Measured serverless chapter
 
+### Save a live run, then replay it for recording
+
+Patient Access defaults to live SQL. You can optionally save a completed **Run**,
+restart the app in saved-run mode, and use the same **Run** button to play that
+capture faster. This is separate from the older synthetic `Demo:Playback`
+backup mode: saved runs use your original DMV samples and captured UI frames,
+not generated CPU readings.
+
+The page intentionally has no playback or speed badge. A recording made in this
+mode is a **time-compressed replay of an earlier measured run**, not a new
+real-time Azure measurement. Describe it accordingly when presenting or sharing
+the video. Staff, counters, illustrative patient activity, CPU, and chart history
+all advance on one source-time clock. CPU values, timestamps, gaps, and ordering
+are retained without interpolation. Patient rows visualize the CPU workload;
+they are not appointment writes.
+
+**1. Capture live.** From the repository root in PowerShell, verify that the
+`part1` connection and monitor settings target your intended Start database.
+Use the normal setup, Entra permissions, and live-workload approval first.
+The profile enables real SQL work; connecting can resume compute, incur charges,
+and restart the auto-pause idle period.
+
+```powershell
+$env:Demo__Playback = "false"
+$env:ServerlessRecording__Mode = "Live"
+$env:ServerlessRecording__File = Join-Path (Get-Location) ".artifacts\caldova-serverless-run.json"
+dotnet run --project .\startandgrowhyperscale\app\CaldovaNetworkScheduling.csproj --configuration Release --launch-profile part1
+```
+
+Open `http://localhost:5099/` and click **Run**. Leave the tab connected until
+the run completes and the console reports **Saved completed serverless Run**.
+The live elapsed clock freezes at completion; an unchanged final duration does
+not mean the workload is still running.
+The current plan is 195 seconds plus startup and in-flight SQL time. A complete
+file includes the trailing CPU observation. Stop, failure, tab disposal, or
+save cancellation does not replace the previous good file. Save errors appear
+on the page and in the console; do not assume completion of SQL work proves
+that a capture was saved.
+
+Captures are written atomically outside `wwwroot`; the `.artifacts` location
+above is ignored by Git. They contain raw CPU samples and displayed scene
+frames, including synthetic patient names, but no connection strings, tokens,
+subscription IDs, or tenant IDs. Review any capture before sharing it.
+
+**2. Restart using the saved run.** Stop the local host with Ctrl+C, then run:
+
+```powershell
+$env:Demo__Playback = "false"
+$env:ServerlessRecording__Mode = "Replay"
+$env:ServerlessRecording__File = Join-Path (Get-Location) ".artifacts\caldova-serverless-run.json"
+$savedRun = Get-Content -LiteralPath $env:ServerlessRecording__File -Raw | ConvertFrom-Json
+$env:ServerlessRecording__Speed = ([double]$savedRun.frames[-1].elapsedSeconds / 30).ToString("R", [Globalization.CultureInfo]::InvariantCulture)
+dotnet run --project .\startandgrowhyperscale\app\CaldovaNetworkScheduling.csproj --configuration Release --launch-profile part1
+```
+
+Refresh `http://localhost:5099/` and click **Run**. The calculated speed targets
+30 seconds of playback using the complete capture's actual duration, not its
+planned duration. For a slower presentation, divide by 75 instead of 30.
+The resulting speed must remain within the supported 0.25-10 range.
+Replay hides the header elapsed clock. Sample/activity times retain original
+source time, not wall-clock playback time. Before the first saved CPU sample,
+the readout and gauge start at zero with no pending label. Staff, patient rows,
+and counters stay at their empty initial view until the first aligned CPU frame.
+This hides any newer, unaligned startup previews in older captures, preventing
+rows or counters from jumping backward when the first CPU sample arrives.
+The original saved data remains unchanged. New live captures use the same
+startup gating. The activity-status
+line follows staff signing in, working, and signing out as the left-hand
+activity changes; it contains no CPU-waiting message. Once staff reaches zero,
+the sign-out phase continues until measured CPU reaches zero; only then does
+it say everyone has signed out. During that trailing interval, the left staff
+header also says **Staff signing out** instead of showing a zero staff count;
+the real zero count returns when CPU reaches zero. Neither CPU readings nor
+staff counts are changed.
+This placeholder is
+not inserted into the saved measurements or chart. **Stop** pauses, **Run** continues, and **Reset**
+returns to the beginning. Run after completion starts the same capture again.
+Speed can be 0.25-10; change the setting and restart to try another speed.
+
+The serverless replay path does not poll ARM, connect to SQL, generate load,
+resume compute, or change any Azure resource. Its live **Sign in (resume)**
+control is hidden. Missing, malformed, incompatible, or incomplete capture files
+stop startup explicitly; there is no fallback to live SQL or synthetic data.
+`/healthz` reports `mode: replay` and `serverless: saved-sql-dmv` for operational
+verification. Other app chapters remain separate, potentially live operations;
+do not navigate to them assuming they use this capture.
+
+This capture covers the morning **Run**, not the hour-long auto-pause wait,
+first-sign-in resume, Azure Monitor billing, or Grow scenes. Those remain real,
+separately approved operations in live mode.
+
+**3. Return to live.** Stop the host, set
+`$env:ServerlessRecording__Mode = "Live"`, and remove
+`ServerlessRecording__File` from the process environment if you do not want
+to capture another run:
+
+```powershell
+$env:ServerlessRecording__Mode = "Live"
+Remove-Item Env:\ServerlessRecording__File
+dotnet run --project .\startandgrowhyperscale\app\CaldovaNetworkScheduling.csproj --configuration Release --launch-profile part1
+```
+
+The existing saved file is retained. Capture/replay settings do not deploy,
+populate, reset, or reconfigure a database.
+
 ### Presentation focus: billed compute
 
 The current presentation goal is a real Azure Monitor **bar chart** showing
@@ -489,7 +594,48 @@ in-flight batch, no command is cancelled). Defaults: peak 8 workers
 (`--serverless-workers`), `--serverless-ramp-step-seconds 30`,
 `--serverless-ramp-hold-seconds 60`, giving 0 -> 8 -> 0 over 8 minutes
 (total limited to 10 minutes). The harness logs active workers alongside DMV
-samples. The Patient Access page offers the same ramp, enabled by default.
+samples. These harness defaults are unchanged.
+
+The Patient Access page uses a separate **195-second planned Run** with explicit
+worker levels: 1 at startup, 2 at 15 seconds, 6 at 30 seconds, and 10 at 45 seconds.
+After a 60-second peak hold, two workers stop every 15 seconds: 8 at 105 seconds,
+6 at 120, 4 at 135, 2 at 150, then zero at 165 seconds. Workers finish their
+in-flight batches. Ramp-up remains 45 seconds; sign-outs span 60 seconds.
+Ten concurrent workers target the eight-vCore database cap without the long
+saturated sign-out plateau seen with 16 workers. The staff display honestly
+shows those workers, not eight simulated staff.
+Verify that an actual capture reaches the desired CPU peak and declines before
+using it for recording; the workload schedule alone is not measured proof.
+Another 30 seconds observes trailing SQL samples. Startup and in-flight batches
+can add time; late telemetry may not include a final zero within this window.
+The separate post-resume observation remains 75 seconds, and Azure auto-pause
+remains 60 minutes. The 195-second timing is offline-tested; its real peak,
+sample delivery, and decline still require live verification.
+
+Staff avatars, activity, and sign-in/sign-out status use recorded worker
+observations at the displayed CPU interval's midpoint, not the current
+wall-clock stage. The presentation omits the interval/staff explanation line;
+raw samples remain available behind the chart. During live activity, the main
+elapsed clock and Stop control remain live, including trailing CPU observation.
+The clock freezes when activity completes, stops, or fails. Reset clears it;
+a new Run starts over, while resume activity preserves its existing origin.
+Worker counts are observed every
+half second. Illustrative patient rows and counters advance at that cadence
+while actual SQL batches complete, and their full historical frame is retained
+with each observation. The CPU display selects that frame rather than generating
+patient activity once per 15-second sample. New staff can therefore appear
+working within their first displayed interval. These are workload visuals,
+not actual appointment writes. Stopped CPU readings are labeled as the last
+recorded value, and the schedule as recorded activity.
+Staff counts are not CPU-used vCores, and a 15-second average may
+span a transition; exact 1/2/6/8 CPU readings or matching CPU direction at every
+step are not guaranteed. Missing intervals are never filled or synthesized.
+The same interval alignment applies to post-resume activity.
+
+The CPU gauge uses numeric hash marks at 1, 2, 6, and 8 for the 1-8-vCore
+configuration. Marks and fill share the same CPU-used scale: six used vCores
+reach 75% of the eight-vCore bar. The configured compute range is labeled
+separately; CPU measurements below one remain unchanged.
 
 The approved harness ramp from the same Cloud PC (SQL start 00:45:40, stop
 00:53:40 UTC on 2026-10-23) completed **7,647 batches with 0 failures**. DMV

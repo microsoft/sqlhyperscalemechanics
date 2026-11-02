@@ -170,16 +170,48 @@ restart the idle period; it does not prepare or move the Grow databases.
 
 ### Beat 1.3 - Caldova Patient Access (current app Step 1, `/`)
 
+For the recording, first capture one complete approved live Run, then restart
+with `ServerlessRecording:Mode=Replay` and speed calculated from the saved duration
+for a 30-second presentation. Keep the **Run** label;
+the page has no playback/speed badge. See the README's
+[capture/replay instructions](README.md#save-a-live-run-then-replay-it-for-recording).
+The shared clock compresses saved CPU and patient/staff frames together.
+Do not describe this replay as a fresh real-time Azure run. Capture does not
+include auto-pause, resume, billing, or Grow; keep those operations separate.
+
 **Presenter decision (2026-10-22): two complementary visuals.**
-The app now uses a **four-and-a-half-minute planned sequence** (2026-10-29):
-the first worker starts as soon as the database connection is ready, without
-an idle baseline. Staff ramp to 8 and back to 0 with 10-second steps and a
-55-second peak hold, then 75-second cooldown. **Stop** cancels the workload
+The app now uses a **195-second planned sequence**:
+one worker starts as soon as the database connection is ready, without
+an idle baseline. The levels are 1, 2, 6, and 10 workers at 0, 15, 30, and
+45 seconds. Hold the peak for 60 seconds, then remove two workers every
+15 seconds: 8, 6, 4, 2, and 0 workers at 105 through 165 seconds.
+Ramp-up lasts 45 seconds; sign-outs span 60 seconds,
+followed by 30 seconds of trailing CPU observation. **Stop** cancels the workload
 and SQL observation immediately instead of waiting through cooldown; it keeps
 existing samples and returns the controls to idle.
-Workload duration is 195 seconds; startup/connection
-time can add to elapsed time. The shorter timing requires a new live rehearsal; a
-**6-7 CPU-used vCore** peak is acceptable. Current source measures
+Workload duration is 165 seconds; startup/connection and in-flight batches
+can add to elapsed time. SQL telemetry can arrive after this short cooldown;
+do not infer a final zero or a measured peak from the plan. Staff avatars,
+schedule activity, and phase status use the actual worker observation at the
+displayed 15-second CPU interval's midpoint, rather than the current stage.
+Patient activity and counters are recorded alongside the half-second worker
+observations as SQL batches complete, then the matching full frame is shown.
+They are workload visuals, not actual booking writes. After Stop, the CPU
+readout and schedule are explicitly historical; zero current staff does not
+mean the last recorded CPU value was zero.
+The presentation omits the CPU interval/staff explanation line; raw samples
+remain available behind the chart. Keep the sign-out phase until measured CPU
+reaches zero before saying everyone has signed out. During live capture,
+elapsed time and Stop remain current. The live elapsed clock freezes when
+activity completes, stops, or fails, instead of counting subsequent idle time.
+Replay hides the header elapsed clock
+and starts at zero while CPU is pending, without adding a chart point.
+A transition can straddle a CPU interval. The 1/2/6/10 sequence
+is worker load against an eight-vCore database cap, not CPU-used vCores.
+Post-resume activity retains its separate 75-second observation.
+The recording capture must be verified to reach the gauge's **8-vCore** peak
+and return down; a 6-7-vCore peak does not satisfy this recording target.
+Do not alter measurements to force the peak. Current source measures
 approximately 15-second `sys.dm_db_resource_stats` interval averages using
 `avg_cpu_percent * cpu_limit / 100`, not Azure Monitor CPU data.
 The approved harness ramp from an Azure client (2026-10-23 00:45-00:54 UTC)

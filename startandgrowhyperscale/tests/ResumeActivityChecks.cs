@@ -8,12 +8,15 @@ internal static class ResumeActivityChecks
 {
     public static async Task RunAsync(Action<bool, string> check, IConfiguration configuration)
     {
+        CheckIntervalAlignment(check);
+        CheckPatientActivityAlignment(check);
+        CheckLiveElapsedClock(check);
         await CheckRunControlsAsync(check, configuration);
         foreach (var scenario in new[] { "enabled", "fresh", "disabled", "failed" })
         {
             var signIn = new SignIn(configuration) { Fail = scenario == "failed" };
             var workload = new Workload(configuration, signIn) { Allow = scenario != "disabled" };
-            var page = new Scale();
+            var page = CreatePage();
             var monitor = new ServerlessMonitor(new HttpClient(new MonitorHandler("{}", "{}", "{}")),
                 new TestCredential(), configuration);
             Set(page, "Monitor", monitor);
@@ -27,6 +30,7 @@ internal static class ResumeActivityChecks
                 Field("samples").SetValue(page, new[] { oldSample });
                 Field("runStart").SetValue(page, oldSample.At.AddMinutes(-1));
                 Field("elapsedStart").SetValue(page, oldSample.At.AddMinutes(-1));
+                Field("elapsedEnd").SetValue(page, oldSample.At);
             }
             var lifetime = (CancellationTokenSource)Field("lifetime").GetValue(page)!;
             try
@@ -54,6 +58,8 @@ internal static class ResumeActivityChecks
                             && (DateTimeOffset)Field("runStart").GetValue(page)! <= DateTimeOffset.UtcNow.AddSeconds(-30),
                             "A fresh resume chart includes the real baseline and uses the short activity timeline");
                     check(Field("phase").GetValue(page)!.ToString() == "Load", "Resume activity enters the normal measured load phase");
+                    check(Field("elapsedEnd").GetValue(page) is null,
+                        "A new resume activity unfreezes the elapsed clock without changing its origin");
                     typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
                     var segments = (System.Collections.IEnumerable)typeof(Scale)
                         .GetMethod("Segments", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null)!;
@@ -64,9 +70,9 @@ internal static class ResumeActivityChecks
                     typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
                     var readout = typeof(Scale).GetProperty("Readout", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page);
                     check((string)readout! == "0.50", "CPU readout rounds 0.26 up to the next quarter vCore");
-                    Field("resumeActivity").SetValue(page, false);
+                    Field("phase").SetValue(page, Enum.Parse(Field("phase").FieldType, "Complete"));
                     check((string)typeof(Scale).GetProperty("Readout", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)! == "0.50",
-                        "The same quarter-vCore readout applies to the main Run, not only resume activity");
+                        "Completed activity retains the same quarter-vCore readout");
                     var roundedSegments = (System.Collections.Generic.IEnumerable<CaldovaNetworkScheduling.Models.ScaleSample[]>)
                         typeof(Scale).GetMethod("Segments", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null)!;
                     check(roundedSegments.Last()[^1].VCores == 0.5
@@ -100,7 +106,7 @@ internal static class ResumeActivityChecks
             (3661.0, "01:01:01"), (90061.0, "25:01:01"), (-30.0, "-00:00:30") })
             check((string)formatElapsed.Invoke(null, [seconds])! == expected,
                 $"Elapsed formatting handles seconds, long gaps, and pre-sign-in samples: {expected}");
-        var clockPage = new Scale();
+        var clockPage = CreatePage();
         var origin = new DateTimeOffset(2026, 10, 28, 23, 59, 50, TimeSpan.Zero);
         Field("elapsedStart").SetValue(clockPage, origin);
         var elapsedAt = typeof(Scale).GetMethod("ElapsedAt", BindingFlags.NonPublic | BindingFlags.Instance)!;
@@ -118,16 +124,74 @@ internal static class ResumeActivityChecks
                 .Invoke(clockPage, [activity])! == "00:00:20",
             "Schedule event times retain their UTC date internally but display elapsed time from Run");
         typeof(Scale).GetMethod("ResetMeasured", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(clockPage, null);
-        check(Field("elapsedStart").GetValue(clockPage) is null
+        check(Field("elapsedStart").GetValue(clockPage) is null && Field("elapsedEnd").GetValue(clockPage) is null
             && (string)typeof(Scale).GetProperty("ElapsedTime", BindingFlags.NonPublic | BindingFlags.Instance)!
                 .GetValue(clockPage)! == "00:00:00",
             "Reset returns the elapsed clock to zero");
         ((CancellationTokenSource)Field("lifetime").GetValue(clockPage)!).Dispose();
     }
 
+    private static void CheckLiveElapsedClock(Action<bool, string> check)
+    {
+        var page = CreatePage();
+        var origin = DateTimeOffset.UtcNow.AddSeconds(-200);
+        Field("elapsedStart").SetValue(page, origin);
+        var refresh = typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var elapsed = typeof(Scale).GetProperty("ElapsedTime", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        try
+        {
+            foreach (var phase in new[] { "Starting", "Load", "Cooldown" })
+            {
+                Field("phase").SetValue(page, Enum.Parse(Field("phase").FieldType, phase));
+                refresh.Invoke(page, null);
+                check(Field("elapsedEnd").GetValue(page) is null,
+                    $"The live elapsed clock continues during {phase}, including trailing CPU observation");
+            }
+            foreach (var phase in new[] { "Complete", "Stopped", "Failed", "Ready" })
+            {
+                Field("elapsedEnd").SetValue(page, null);
+                Field("phase").SetValue(page, Enum.Parse(Field("phase").FieldType, phase));
+                var before = DateTimeOffset.UtcNow;
+                refresh.Invoke(page, null);
+                var ended = (DateTimeOffset)Field("elapsedEnd").GetValue(page)!;
+                check(ended >= before && ended <= DateTimeOffset.UtcNow,
+                    $"Entering {phase} freezes the live elapsed clock at the actual end, not the planned duration");
+                var recordedEnd = origin.AddSeconds(197.5466713);
+                Field("elapsedEnd").SetValue(page, recordedEnd);
+                refresh.Invoke(page, null);
+                refresh.Invoke(page, null);
+                check((string)elapsed.GetValue(page)! == "00:03:17"
+                    && (DateTimeOffset)Field("elapsedEnd").GetValue(page)! == recordedEnd,
+                    $"Later {phase} refreshes retain the final duration instead of counting idle time");
+            }
+            typeof(Scale).GetMethod("ResetMeasured", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
+            check(Field("elapsedEnd").GetValue(page) is null && (string)elapsed.GetValue(page)! == "00:00:00",
+                "Reset clears a frozen finish time for the next live run");
+        }
+        finally
+        {
+            ((CancellationTokenSource)Field("lifetime").GetValue(page)!).Dispose();
+        }
+    }
+
     private static async Task CheckRunControlsAsync(Action<bool, string> check, IConfiguration configuration)
     {
-        var pendingPage = new Scale();
+        var workingPage = CreatePage();
+        Field("phase").SetValue(workingPage, Enum.Parse(Field("phase").FieldType, "Load"));
+        Field("load").SetValue(workingPage, new SqlWorkloadSnapshot(true, 8, 10, 0,
+            DateTimeOffset.UtcNow, null, null, 1));
+        ((MeasuredClinicScene)Field("scene").GetValue(workingPage)!).Observe(DateTimeOffset.UtcNow,
+            (SqlWorkloadSnapshot)Field("load").GetValue(workingPage)!);
+        check((string)typeof(Scale).GetProperty("StatusDetail", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .GetValue(workingPage)! == "Staff signing in",
+            "Live startup shows only the sign-in phase until the first aligned CPU frame");
+        typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(workingPage, null);
+        var initial = (CaldovaNetworkScheduling.Models.ScaleSnapshot)Field("snap").GetValue(workingPage)!;
+        check(initial.ActiveUsers == 0 && initial.Activity.Count == 0
+            && initial.Booked == 0 && initial.CheckedIn == 0 && initial.Rescheduled == 0,
+            "Live capture never exposes newer startup activity before older aligned CPU frames arrive");
+        ((CancellationTokenSource)Field("lifetime").GetValue(workingPage)!).Dispose();
+        var pendingPage = CreatePage();
         Field("phase").SetValue(pendingPage, Enum.Parse(Field("phase").FieldType, "Starting"));
         typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(pendingPage, null);
         var readout = typeof(Scale).GetProperty("Readout", BindingFlags.NonPublic | BindingFlags.Instance)!;
@@ -149,6 +213,18 @@ internal static class ResumeActivityChecks
         typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(pendingPage, null);
         check((string)readout.GetValue(pendingPage)! == "0.00" && (double)display.GetValue(pendingPage)! == 0,
             "A real zero is never replaced with the configured minimum");
+        var gaugePercent = typeof(Scale).GetMethod("GaugePercent", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var gaugeTicks = (IEnumerable<double>)typeof(Scale).GetProperty("GaugeTicks", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(pendingPage)!;
+        check(gaugeTicks.SequenceEqual([1, 2, 6, 8])
+            && gaugeTicks.Select(value => (double)gaugePercent.Invoke(pendingPage, [value])!)
+                .SequenceEqual([12.5, 25, 75, 100]),
+            "The live gauge scale positions each hash mark using the same numeric mapping as the fill");
+        Field("samples").SetValue(pendingPage, new[] { new ServerlessCpuSample(DateTimeOffset.UtcNow, 75, 8) });
+        typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(pendingPage, null);
+        check((string)readout.GetValue(pendingPage)! == "6.00"
+            && (double)gaugePercent.Invoke(pendingPage, [display.GetValue(pendingPage)!])! == 75,
+            "Six CPU-used vCores fill exactly to the six-vCore hash mark");
         typeof(Scale).GetMethod("ResetMeasured", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(pendingPage, null);
         typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(pendingPage, null);
         check((string)readout.GetValue(pendingPage)! == "–" && !(bool)awaitingCpu.GetValue(pendingPage)!,
@@ -158,7 +234,8 @@ internal static class ResumeActivityChecks
             .GetValue(null)! == TimeSpan.FromSeconds(3),
             "The app checks for newly published 15-second SQL samples every three seconds");
         var workload = new RampWorkload(configuration);
-        var page = new Scale();
+        var page = CreatePage();
+        Field("elapsedEnd").SetValue(page, DateTimeOffset.UtcNow.AddMinutes(-1));
         Set(page, "Monitor", new ServerlessMonitor(new HttpClient(new MonitorHandler("{}", "{}", "{}")),
             new TestCredential(), configuration));
         Set(page, "Telemetry", new Telemetry(configuration));
@@ -170,7 +247,17 @@ internal static class ResumeActivityChecks
             typeof(Scale).GetMethod("Run", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
             var started = await Task.WhenAny(workload.Started.Task, Task.Delay(TimeSpan.FromSeconds(2)));
             check(started == workload.Started.Task && workload.Snapshot.Active == 1,
-                "The actual Run handler starts its first worker without the former 30-second baseline");
+                "The actual Run handler starts one worker immediately without an idle baseline");
+            check(Field("elapsedEnd").GetValue(page) is null,
+                "Run clears the previous frozen clock before starting the next measured activity");
+            var actualRamp = await workload.Started.Task;
+            check(actualRamp.Total == TimeSpan.FromSeconds(165)
+                && actualRamp.PeakWorkers == 10 && actualRamp.InitialWorkers == 1
+                && actualRamp.WorkerLevels.SequenceEqual([1, 2, 6, 10])
+                && actualRamp.StepUp == TimeSpan.FromSeconds(15) && actualRamp.StepDown == actualRamp.StepUp
+                && actualRamp.Hold == TimeSpan.FromSeconds(60) && actualRamp.WorkersPerStepDown == 2
+                && (TimeSpan)Field("planned").GetValue(page)! == TimeSpan.FromSeconds(195),
+                "The actual Run handler sustains 10 peak workers then stops pairs within a 195-second timeline");
         }
         finally
         {
@@ -182,7 +269,7 @@ internal static class ResumeActivityChecks
         }
         foreach (var phase in new[] { "Starting", "Load", "Cooldown" })
         {
-            var stoppedPage = new Scale();
+            var stoppedPage = CreatePage();
             var stoppedWorkload = new RampWorkload(configuration);
             var run = new CancellationTokenSource();
             var sample = new ServerlessCpuSample(DateTimeOffset.UtcNow, 25, 8);
@@ -190,7 +277,6 @@ internal static class ResumeActivityChecks
             Set(stoppedPage, "Workload", stoppedWorkload);
             Field("run").SetValue(stoppedPage, run);
             Field("phase").SetValue(stoppedPage, Enum.Parse(Field("phase").FieldType, phase));
-            Field("resumeActivity").SetValue(stoppedPage, phase == "Load");
             Field("samples").SetValue(stoppedPage, retainedSamples);
             var scene = (MeasuredClinicScene)Field("scene").GetValue(stoppedPage)!;
             scene.Update(DateTimeOffset.UtcNow, 1, 0);
@@ -206,7 +292,6 @@ internal static class ResumeActivityChecks
                 check(run.IsCancellationRequested && polling.IsCompleted && runTask.IsCompleted,
                     $"Stop during {phase} cancels and joins observation and orchestration without a cooldown delay");
                 check(Field("phase").GetValue(stoppedPage)!.ToString() == "Stopped"
-                    && !(bool)Field("resumeActivity").GetValue(stoppedPage)!
                     && !(bool)typeof(Scale).GetProperty("Busy", BindingFlags.NonPublic | BindingFlags.Instance)!
                         .GetValue(stoppedPage)!
                     && !stoppedWorkload.Snapshot.Running,
@@ -215,6 +300,9 @@ internal static class ResumeActivityChecks
                     && scene.Snapshot(false, false, DateTimeOffset.UtcNow, null, TimeSpan.FromMinutes(4.5),
                         retainedSamples, null, "").ActiveUsers == 0,
                     $"Stop during {phase} clears online staff without erasing measured samples");
+                check((bool)typeof(Scale).GetProperty("HistoricalCpu", BindingFlags.NonPublic | BindingFlags.Instance)!
+                        .GetValue(stoppedPage)!,
+                    $"Stop during {phase} identifies retained CPU and schedule activity as historical");
             }
             finally
             {
@@ -227,10 +315,164 @@ internal static class ResumeActivityChecks
         }
     }
 
+    private static void CheckIntervalAlignment(Action<bool, string> check)
+    {
+        var ramp = new WorkloadRamp(8, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15),
+            TimeSpan.FromSeconds(15), WorkerLevels: [1, 2, 6, 8]);
+        var origin = DateTimeOffset.UtcNow.AddMinutes(-3);
+        var scene = new MeasuredClinicScene();
+        int[] levels = [1, 2, 6, 8, 6, 2, 1, 0];
+        for (var i = 0; i < levels.Length; i++)
+            scene.Observe(origin.AddSeconds(i * 15),
+                new(i < 7, 8, i * 100, 0, origin, null, null, levels[i], ramp));
+        for (var i = 0; i < levels.Length; i++)
+        {
+            var sample = new ServerlessCpuSample(origin.AddSeconds((i + 1) * 15), 90 - i * 10, 8);
+            scene.Present(sample);
+            var snapshot = scene.Snapshot(true, false, origin.AddMinutes(3), origin, TimeSpan.FromSeconds(135),
+                [sample], null, "");
+            var expected = i == 3 ? "Staff working" : i < 3 ? "Staff signing in" : "Staff signing out";
+            check(snapshot.ActiveUsers == levels[i] && scene.IntervalEnd == sample.At
+                && scene.IntervalStatus!.StartsWith(expected, StringComparison.Ordinal)
+                && snapshot.VCores == sample.UsedVCores,
+                $"Delayed interval {i + 1} uses its observed {levels[i]} staff and stage, without changing CPU");
+        }
+        var previousActivity = scene.Snapshot(true, false, origin.AddMinutes(3), origin, TimeSpan.FromSeconds(135),
+            [], null, "").Activity;
+        scene.Present(new(origin.AddSeconds(60), 100, 8));
+        check(scene.IntervalEnd == origin.AddSeconds(120)
+            && scene.Snapshot(true, false, origin.AddMinutes(3), origin, TimeSpan.FromSeconds(135),
+                [], null, "").Activity.SequenceEqual(previousActivity),
+            "Repeated or older intervals never replay staff activity or move the displayed stage backward");
+        check(scene.IntervalStatus == "Staff signing out",
+            "Zero observed staff with trailing positive CPU remains in the sign-out phase");
+        scene.Present(new(origin.AddSeconds(135), 0, 8));
+        check(scene.IntervalStatus == "Everyone has signed out",
+            "The live sign-out phase completes only when the measured CPU reaches zero");
+        scene.Reset();
+        scene.Present(new(origin.AddSeconds(-15), 50, 8));
+        check(scene.IntervalEnd is null && scene.IntervalStatus is null
+            && scene.Snapshot(true, false, origin, origin, TimeSpan.FromSeconds(135), [], null, "").ActiveUsers == 0,
+            "Reset clears worker history; an interval without observations invents no staff stage");
+        scene.Observe(origin, new(true, 8, 0, 0, origin, null, null, 6, ramp));
+        scene.Observe(origin.AddSeconds(50), new(true, 8, 10, 0, origin, null, null, 8, ramp));
+        var lateConnectionSample = new ServerlessCpuSample(origin.AddSeconds(52.5), 50, 8);
+        scene.Present(lateConnectionSample);
+        check(scene.Snapshot(true, false, origin.AddSeconds(60), origin, TimeSpan.FromSeconds(135),
+                [lateConnectionSample], null, "").ActiveUsers == 6 && scene.IntervalStatus!.StartsWith("Staff signing in", StringComparison.Ordinal),
+            "Late worker connections use actual observations, not the scheduled peak or CPU value");
+
+        var page = CreatePage();
+        var pageScene = (MeasuredClinicScene)Field("scene").GetValue(page)!;
+        for (var i = 0; i < 6; i++)
+            pageScene.Observe(origin.AddSeconds(i * 15),
+                new(true, 8, i * 100, 0, origin, null, null, levels[i], ramp));
+        Field("phase").SetValue(page, Enum.Parse(Field("phase").FieldType, "Load"));
+        Field("samples").SetValue(page, new[] { new ServerlessCpuSample(origin.AddSeconds(60), 95, 8) });
+        Field("load").SetValue(page, new SqlWorkloadSnapshot(true, 8, 500, 0, origin, null, null, 2, ramp));
+        typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
+        var snapshotField = Field("snap");
+        var status = typeof(Scale).GetProperty("StatusDetail", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        check((string)status.GetValue(page)! == "Staff working · 8 staff signed in"
+            && ((CaldovaNetworkScheduling.Models.ScaleSnapshot)snapshotField.GetValue(page)!).ActiveUsers == 8,
+            "The actual page shows peak-interval staff even when the current workload is already signing out");
+        Field("samples").SetValue(page, new[] { new ServerlessCpuSample(origin.AddSeconds(75), 70, 8) });
+        typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
+        check((string)status.GetValue(page)! == "Staff signing out · 6 staff signed in"
+            && ((CaldovaNetworkScheduling.Models.ScaleSnapshot)snapshotField.GetValue(page)!).ActiveUsers == 6,
+            "Sign-out status and avatars advance only when the corresponding CPU interval arrives");
+        Field("phase").SetValue(page, Enum.Parse(Field("phase").FieldType, "Cooldown"));
+        check((string)status.GetValue(page)! == "Staff signing out · 6 staff signed in",
+            "Trailing telemetry keeps interval-aligned status rather than prematurely saying everyone signed out");
+        ((CancellationTokenSource)Field("lifetime").GetValue(page)!).Dispose();
+    }
+
+    private static void CheckPatientActivityAlignment(Action<bool, string> check)
+    {
+        var ramp = new WorkloadRamp(8, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15),
+            TimeSpan.FromSeconds(15), WorkerLevels: [1, 2, 6, 8]);
+        var origin = new DateTimeOffset(2026, 11, 2, 20, 0, 0, TimeSpan.Zero);
+        var scene = new MeasuredClinicScene();
+        var prefix = new MeasuredClinicScene();
+        long completed = 0;
+        for (var tick = 0; tick <= 240; tick++)
+        {
+            var elapsed = TimeSpan.FromSeconds(tick * 0.5);
+            var active = ramp.ActiveAt(elapsed);
+            completed += active * 5;
+            var load = new SqlWorkloadSnapshot(active > 0, 8, completed, 0, origin, null, null, active, ramp);
+            scene.Observe(origin + elapsed, load);
+            if (elapsed <= TimeSpan.FromSeconds(7.5)) prefix.Observe(origin + elapsed, load);
+        }
+        var expectedPrefix = prefix.Snapshot(true, false, origin.AddSeconds(7.5), origin,
+            TimeSpan.FromSeconds(135), [], null, "");
+        var firstSample = new ServerlessCpuSample(origin.AddSeconds(15), 15, 8);
+        scene.Present(firstSample);
+        var first = scene.Snapshot(true, false, origin.AddSeconds(120), origin,
+            TimeSpan.FromSeconds(135), [firstSample], null, "");
+        check(first.Activity.Count > 0 && first.ActiveUsers == 1
+            && first.Booked == expectedPrefix.Booked && first.CheckedIn == expectedPrefix.CheckedIn
+            && first.Rescheduled == expectedPrefix.Rescheduled && first.Activity.SequenceEqual(expectedPrefix.Activity),
+            "The first staff member already has patient activity in the first CPU interval, with matching historical counters");
+        var secondSample = new ServerlessCpuSample(origin.AddSeconds(30), 25, 8);
+        scene.Present(secondSample);
+        var second = scene.Snapshot(true, false, origin.AddSeconds(120), origin,
+            TimeSpan.FromSeconds(135), [secondSample], null, "");
+        check(second.ActiveUsers == 2 && second.Activity.Any(a => a.StaffId == 2)
+            && second.Activity.Any(a => a.RecordedAt > origin.AddSeconds(15)),
+            "Newly signed-in staff perform patient activity within their own CPU interval, not one interval later");
+        for (var i = 3; i <= 8; i++)
+        {
+            var sample = new ServerlessCpuSample(origin.AddSeconds(i * 15), 20, 8);
+            scene.Present(sample);
+            var snapshot = scene.Snapshot(true, false, origin.AddSeconds(120), origin,
+                TimeSpan.FromSeconds(135), [sample], null, "");
+            var midpoint = sample.At - ServerlessSqlTelemetry.SampleInterval / 2;
+            check(snapshot.ActiveUsers == ramp.ActiveAt(midpoint - origin)
+                && snapshot.Activity.All(a => a.RecordedAt is { } at && at <= midpoint
+                    && a.StaffId <= ramp.ActiveAt(at - origin)),
+                $"CPU interval {i} uses patient rows from the same historical frame and only staff active when each row occurred");
+        }
+        var quietSample = new ServerlessCpuSample(origin.AddSeconds(120), 1, 8);
+        var quiet = scene.Snapshot(true, false, origin.AddSeconds(120), origin,
+            TimeSpan.FromSeconds(135), [quietSample], null, "");
+        check(quiet.ActiveUsers == 0 && quiet.Activity.All(a => a.RecordedAt < origin.AddSeconds(105))
+            && quiet.Booked + quiet.CheckedIn + quiet.Rescheduled > first.Booked + first.CheckedIn + first.Rescheduled,
+            "Patient activity builds during real batch completion and stops when the last worker signs out");
+        var frozen = new MeasuredClinicScene();
+        frozen.Observe(origin, new(true, 8, 0, 0, origin, null, null, 1, ramp));
+        frozen.Observe(origin.AddSeconds(5), new(true, 8, 10, 0, origin, null, null, 1, ramp));
+        frozen.Present(firstSample);
+        var before = frozen.Snapshot(true, false, origin.AddSeconds(15), origin,
+            TimeSpan.FromSeconds(135), [firstSample], null, "");
+        frozen.Observe(origin.AddSeconds(20), new(true, 8, 100, 0, origin, null, null, 6, ramp));
+        frozen.Present(firstSample);
+        var after = frozen.Snapshot(true, false, origin.AddSeconds(20), origin,
+            TimeSpan.FromSeconds(135), [firstSample], null, "");
+        check(after.ActiveUsers == before.ActiveUsers && after.Booked == before.Booked
+            && after.CheckedIn == before.CheckedIn && after.Rescheduled == before.Rescheduled
+            && after.Activity.SequenceEqual(before.Activity),
+            "Current worker and patient activity never leak into a still-displayed older CPU interval");
+        var stalled = new MeasuredClinicScene();
+        for (var tick = 0; tick <= 30; tick++)
+            stalled.Observe(origin.AddSeconds(tick * 0.5), new(true, 8, 0, 0, origin, null, null, 1, ramp));
+        stalled.Present(firstSample);
+        check(stalled.Snapshot(true, false, origin.AddSeconds(15), origin, TimeSpan.FromSeconds(135),
+                [firstSample], null, "").Activity.Count == 0,
+            "Patient activity is never generated when SQL batches are not completing");
+    }
+
     private static async Task WaitForCancellationAsync(CancellationToken token)
     {
         try { await Task.Delay(Timeout.InfiniteTimeSpan, token); }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private static Scale CreatePage()
+    {
+        var page = new Scale();
+        Set(page, "Recording", new ServerlessRunRecording(new("Live", null, 2), TimeProvider.System));
+        return page;
     }
 
     private static FieldInfo Field(string name) =>
@@ -291,7 +533,11 @@ internal static class ResumeActivityChecks
         private SqlWorkloadSnapshot state = new(true, 8, 0, 0, DateTimeOffset.UtcNow, null, null, 1);
         public override bool Enabled => true;
         public override SqlWorkloadSnapshot Snapshot => state;
-        public override void StartRamp(ServerlessConfiguration database, WorkloadRamp ramp) => Started.SetResult(ramp);
+        public override void StartRamp(ServerlessConfiguration database, WorkloadRamp ramp)
+        {
+            state = state with { Active = ramp.ActiveAt(TimeSpan.Zero), Ramp = ramp };
+            Started.SetResult(ramp);
+        }
         public override Task StopAsync()
         {
             state = state with { Running = false, Active = 0 };

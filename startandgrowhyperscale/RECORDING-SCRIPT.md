@@ -53,7 +53,7 @@ until it has had no connections for at least 60 minutes (Hyperscale minimum).
 | 2 | **Beat 1.2 - Copilot sizing and deployment.** Show the skill's Scene 2 workflow. In the new on-camera chat, use the short requirements-led runbook prompt. Use the current Azure user/subscription and existing `caldova-network-rg` / `sql-caldova-start-0efc44`. Without dialog boxes or estimate questions, Copilot checks compatibility, states pilot assumptions, recommends Hyperscale serverless 1-8 vCores with 60-min auto-pause, and shows the `-WhatIf` plan. Approve the exact plan; deploy `caldova-scheduling` and verify (time-lapse with disclosure). | Script deployment verified 2026-10-25 (7.7 min); revised prompt/reuse conversation needs rehearsal. Existing database verification is not a fresh deployment. |
 | 3 | **Portal verification.** Open the exact database from Scene 2. Show server/database names, Hyperscale serverless, 1-8 vCores, and 60-minute auto-pause. Do not change settings or open the query editor. | Rehearse |
 | - | **Populate (off camera).** In the same chat: "Populate the database we just deployed with the demo schema and data. This is off camera." Confirm the Scene 2 target, approve the schema/seed preview, verify tables and counts, then disconnect setup clients. Follow the skill's single-database population workflow, not the Grow setup script. | Rehearse |
-| 4 | **Beat 1.3 - Measured run.** App Step 1, click **Run** (four-and-a-half-minute planned sequence, plus startup/connection time). The first worker starts as soon as the database connection is ready, without an idle baseline. Eight workers ramp up over 70 s, hold 55 s, ramp down over 70 s; cooldown 75 s captures the measured decline. Polling stops on its own. **Stop** ends workload and observation without waiting for cooldown, retaining collected samples. | Rehearse revised immediate-start timing; historical 2026-10-25 peak was 7.48 measured vCores with the previous timing, not proof of this shorter run. |
+| 4 | **Beat 1.3 - Capture, then record saved results.** Off camera, approve and capture one complete live **Run** using the [README instructions](README.md#save-a-live-run-then-replay-it-for-recording). Its worker levels rise through 1, 2, 6, 10, hold peak demand for 60 seconds against the eight-vCore cap, then remove two workers every 15 seconds through 8, 6, 4, 2, and 0. Trailing CPU observation brings the plan to 195 s plus startup/in-flight SQL. Restart in `ServerlessRecording:Mode=Replay`, calculating speed from the saved duration for 30 seconds of playback. For the recording, click the unchanged **Run** button: saved staff, patient activity, and CPU advance together, with no speed badge. **Stop** pauses; **Run** continues; **Reset** starts over. | Verify that the actual captured gauge reaches 8 and returns down before using it. Use the actual saved duration, not the plan, to calculate speed. Older captures keep their original ramp; record a new live run to see the revised sign-outs. This is replay of earlier SQL measurements, not a new real-time Azure run. Levels are workers, not guaranteed CPU-used vCores. Capture does not include auto-pause/resume, billing, or Grow. |
 | - | **Wait (off camera).** Leave the page open; touch nothing that connects to SQL. About 61 minutes after the run ends, Azure pauses the database. | Ready (paused ~60 min after the run) |
 | 5 | **Paused.** The page turns grey: "Paused - no compute charges", readout 0.00, "Clinics are quiet". | Ready |
 | - | **Wait at least 10 minutes after the pause** before Scene 6, so the billing chart shows a clear gap. | - |
@@ -67,6 +67,16 @@ the 135-second baseline/activity/cooldown view; existing run samples remain
 retained with their actual timestamp gaps. SQL still publishes interval averages
 about every 15 seconds, so the chart is not instantaneous. The app checks for
 new samples every three seconds to avoid adding a full 15-second polling delay.
+The staff display uses actual worker observations at the displayed interval's
+midpoint, for both Run and post-resume activity. Interval start/end times are
+shown separately from the live elapsed clock. Do not narrate a delayed interval
+as instantaneous CPU, equate workers with cores, or promise an exact CPU
+staircase. Cut or time-compress the recording honestly; never replace samples.
+Patient rows and counters are captured with each half-second observation while
+SQL batches complete, so they come from the same historical frame as the staff
+and CPU interval. These workload visuals are not actual appointment writes.
+If Stop is clicked early, current staff becomes zero but the last CPU value
+and recorded schedule remain; do not narrate that historical CPU as current.
 While a run is starting and no samples have arrived, the readout and gauge
 show the configured minimum (1.00 in this demo), labeled "minimum vCores".
 The first real CPU sample replaces that value, including a real zero. No
