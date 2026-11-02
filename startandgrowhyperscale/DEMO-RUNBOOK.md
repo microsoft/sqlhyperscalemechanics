@@ -2,7 +2,8 @@
 
 Two independently presentable chapters tell the story. Use the
 [Start and Grow skill](../.github/skills/start-and-grow-hyperscale-demo/SKILL.md)
-to build/verify the demo or cue one beat at a time. For the take-by-take
+for real deployment, verification, and operations. Recording-specific skill
+instructions are maintained privately outside the repository. For the take-by-take
 recording order and current status, see [RECORDING-SCRIPT.md](RECORDING-SCRIPT.md). Stop between beats and at
 the chapter boundary. "Next" is not approval to change Azure.
 

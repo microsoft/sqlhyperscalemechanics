@@ -17,7 +17,9 @@ The app avoids the word "scheduler" for people (it collides with SQLOS scheduler
 ## Two-part demo and guiding skill
 
 Use [start-and-grow-hyperscale-demo](../.github/skills/start-and-grow-hyperscale-demo/SKILL.md)
-to build, repair, verify, or present this demo one beat at a time.
+for real deployment, database population, verification, and operations.
+The repository skill contains operational guidance only; recording-specific
+instructions are maintained separately outside the repository.
 The [runbook](DEMO-RUNBOOK.md) is the presentation source of truth:
 
 1. **Start with Hyperscale:** Azure Portal choices, Copilot-assisted requirements/
