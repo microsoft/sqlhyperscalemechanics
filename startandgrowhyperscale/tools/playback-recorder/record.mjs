@@ -1,43 +1,62 @@
-// Records each Caldova app sequence (playback mode) to its own 1920x1080 MP4.
+// Records each Caldova app sequence (playback mode) to its own native 4K (3840x2160) MP4.
+// Pages are captured at full resolution (~9 fps on a typical machine); the pointer and click
+// ripples are drawn in a second pass at 25 fps from the recorded pointer track, so motion stays smooth.
 // Usage: node record.mjs [clipName ...]   (default: all clips, in order)
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import ffmpegPath from 'ffmpeg-static';
 
 const BASE = process.env.CALDOVA_URL ?? 'http://localhost:5096';
 const OUT = process.env.CLIP_DIR ?? path.resolve('clips');
 const FPS = 25;
-const W = 1920, H = 1080;          // output pixels
-const CW = 1536, CH = 864, DSF = 1.25; // CSS viewport at 125% zoom
+const CW = 1536, CH = 864, DSF = 2.5;   // CSS viewport (125% of 1920x1080) rendered at 2.5x
+const W = CW * DSF, H = CH * DSF;       // 3840x2160 output
+const CURSOR = { w: 28 * DSF, h: 28 * DSF, hotX: 3 * DSF, hotY: 2 * DSF };
+const RING = { size: 44 * DSF, ms: 380 };
 mkdirSync(OUT, { recursive: true });
-
-const cursorScript = () => {
-  const install = () => {
-    if (document.getElementById('__cursor')) return;
-    const c = document.createElement('div');
-    c.id = '__cursor';
-    c.innerHTML = '<svg width="28" height="28" viewBox="0 0 28 28"><path d="M3 2 L3 22 L8.5 17 L12.5 26 L16 24.5 L12 15.5 L19.5 15.5 Z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>';
-    Object.assign(c.style, { position: 'fixed', left: '-100px', top: '-100px', zIndex: 2147483647, pointerEvents: 'none', width: '28px', height: '28px' });
-    document.documentElement.appendChild(c);
-    document.addEventListener('mousemove', e => { c.style.left = e.clientX - 3 + 'px'; c.style.top = e.clientY - 2 + 'px'; }, true);
-    document.addEventListener('mousedown', e => {
-      const r = document.createElement('div');
-      Object.assign(r.style, { position: 'fixed', left: e.clientX - 18 + 'px', top: e.clientY - 18 + 'px', width: '36px', height: '36px',
-        borderRadius: '50%', border: '3px solid rgba(197,138,22,.9)', zIndex: 2147483646, pointerEvents: 'none',
-        transition: 'transform .45s ease-out, opacity .45s ease-out', transform: 'scale(.4)', opacity: '1' });
-      document.documentElement.appendChild(r);
-      requestAnimationFrame(() => { r.style.transform = 'scale(1.4)'; r.style.opacity = '0'; });
-      setTimeout(() => r.remove(), 600);
-    }, true);
-  };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install); else install();
-  new MutationObserver(install).observe(document, { childList: true, subtree: true });
-};
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let mouse = { x: CW / 2, y: CH / 2 };
+let active = null; // clip currently recording; receives pointer and click events
+
+function ffmpeg(args, cwd) {
+  const p = spawn(ffmpegPath, ['-y', '-loglevel', 'error', ...args], { cwd, stdio: ['pipe', 'inherit', 'inherit'] });
+  return { proc: p, done: new Promise((resolve, reject) => p.on('close', code => code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`)))) };
+}
+
+async function makeOverlays(browser) {
+  const page = await (await browser.newContext({ viewport: { width: 200, height: 200 }, deviceScaleFactor: 1 })).newPage();
+  const cursorSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CURSOR.w}" height="${CURSOR.h}" viewBox="0 0 28 28"><path d="M3 2 L3 22 L8.5 17 L12.5 26 L16 24.5 L12 15.5 L19.5 15.5 Z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+  const ringSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${RING.size}" height="${RING.size}" viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" fill="rgba(197,138,22,.18)" stroke="rgba(197,138,22,.95)" stroke-width="3"/></svg>`;
+  for (const [file, svg] of [['cursor.png', cursorSvg], ['ring.png', ringSvg]]) {
+    await page.setContent(`<body style="margin:0;background:transparent">${svg}</body>`);
+    await page.locator('svg').screenshot({ path: path.join(OUT, file), omitBackground: true });
+  }
+  await page.context().close();
+}
+
+async function pointer(page, x, y) {
+  await page.mouse.move(x, y);
+  mouse = { x, y };
+  active?.track.push([Date.now() - active.t0, x, y]);
+}
+
+// Eased pointer glide; each intermediate position is logged for the cursor overlay.
+async function glide(page, x, y) {
+  const from = { ...mouse };
+  const dist = Math.hypot(x - from.x, y - from.y);
+  const duration = Math.min(950, Math.max(320, 260 + dist * 0.75));
+  const t = Date.now();
+  for (;;) {
+    const k = Math.min(1, (Date.now() - t) / duration);
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    await pointer(page, from.x + (x - from.x) * e, from.y + (y - from.y) * e);
+    if (k >= 1) break;
+    await sleep(12);
+  }
+}
 
 async function moveTo(page, locator, settle = 350) {
   await locator.waitFor({ state: 'visible' });
@@ -48,15 +67,13 @@ async function moveTo(page, locator, settle = 350) {
   }
   const box = await locator.boundingBox();
   if (!box) throw new Error('Element not visible');
-  const x = box.x + box.width / 2, y = box.y + box.height / 2;
-  const steps = Math.max(12, Math.round(Math.hypot(x - mouse.x, y - mouse.y) / 18));
-  await page.mouse.move(x, y, { steps });
-  mouse = { x, y };
+  await glide(page, box.x + box.width / 2, box.y + box.height / 2);
   await sleep(settle);
 }
 
 async function click(page, locator) {
   await moveTo(page, locator);
+  active?.clicks.push([Date.now() - active.t0, mouse.x, mouse.y]);
   await page.mouse.down();
   await sleep(90);
   await page.mouse.up();
@@ -65,8 +82,7 @@ async function click(page, locator) {
 
 async function wander(page, points, pause = 600) {
   for (const [x, y] of points) {
-    await page.mouse.move(x, y, { steps: 30 });
-    mouse = { x, y };
+    await glide(page, x, y);
     await sleep(pause);
   }
 }
@@ -85,36 +101,77 @@ async function scrollToTop(page) {
 class Clip {
   constructor(page, name) { this.page = page; this.name = name; }
   async start() {
-    this.file = path.join(OUT, `${this.name}.mp4`);
-    this.ff = spawn(ffmpegPath, ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-c:v', 'mjpeg', '-framerate', String(FPS), '-i', '-',
-      '-vf', `scale=${W}:${H}:flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '16',
-      '-movflags', '+faststart', '-r', String(FPS), this.file], { stdio: ['pipe', 'inherit', 'inherit'] });
-    this.closed = new Promise(r => this.ff.on('close', r));
+    const prefix = `${String(order.indexOf(this.name) + 1).padStart(2, '0')}-${this.name}`;
+    this.file = `${prefix}.mp4`;
+    this.raw = `${prefix}.raw.mkv`;
+    this.cmds = `${prefix}.cmds.txt`;
+    // Pass 1: full-resolution page frames, held to a constant 25 fps, near-lossless.
+    this.ff = ffmpeg(['-f', 'image2pipe', '-c:v', 'mjpeg', '-framerate', String(FPS), '-i', '-',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '10', '-pix_fmt', 'yuv420p', this.raw], OUT);
     this.cdp = await this.page.context().newCDPSession(this.page);
     this.latest = null;
-    this.cdp.on('Page.screencastFrame', async f => {
-      this.latest = Buffer.from(f.data, 'base64');
-      try { await this.cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }); } catch { }
-    });
-    await this.cdp.send('Page.startScreencast', { format: 'jpeg', quality: 95, maxWidth: W, maxHeight: H, everyNthFrame: 1 });
+    this.capturing = true;
+    this.frames = 0;
+    this.capture = (async () => {
+      while (this.capturing) {
+        try {
+          const shot = await this.cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 92, optimizeForSpeed: true });
+          this.latest = Buffer.from(shot.data, 'base64');
+          this.frames++;
+        } catch { await sleep(20); }
+      }
+    })();
     while (!this.latest) await sleep(20);
     this.t0 = Date.now();
+    this.track = [[0, mouse.x, mouse.y]];
+    this.clicks = [];
     this.written = 0;
     this.timer = setInterval(() => this.pump(), 1000 / FPS / 2);
+    active = this;
     console.log(`● recording ${this.name}`);
   }
   pump() {
     const due = Math.floor((Date.now() - this.t0) / 1000 * FPS);
-    while (this.written < due) { this.ff.stdin.write(this.latest); this.written++; }
+    while (this.written < due) { this.ff.proc.stdin.write(this.latest); this.written++; }
+  }
+  commands() {
+    const lines = [];
+    let j = 0, last = '';
+    for (let f = 0; f < this.written; f++) {
+      const ms = f * 1000 / FPS;
+      while (j + 1 < this.track.length && this.track[j + 1][0] <= ms) j++;
+      const [, x, y] = this.track[j];
+      const cx = Math.round(x * DSF - CURSOR.hotX), cy = Math.round(y * DSF - CURSOR.hotY);
+      const ring = this.clicks.find(([t]) => ms >= t && ms < t + RING.ms);
+      const rx = ring ? Math.round(ring[1] * DSF - RING.size / 2) : -2000;
+      const ry = ring ? Math.round(ring[2] * DSF - RING.size / 2) : -2000;
+      const key = `${cx},${cy},${rx},${ry}`;
+      if (key === last) continue;
+      last = key;
+      lines.push(`${(ms / 1000).toFixed(3)} overlay@cur x ${cx}, overlay@cur y ${cy}, overlay@ring x ${rx}, overlay@ring y ${ry};`);
+    }
+    return lines.join('\n');
   }
   async stop() {
     this.pump();
+    active = null;
     clearInterval(this.timer);
-    await this.cdp.send('Page.stopScreencast').catch(() => { });
+    this.capturing = false;
+    await this.capture;
     await this.cdp.detach().catch(() => { });
-    this.ff.stdin.end();
-    await this.closed;
-    console.log(`■ ${this.name}: ${(this.written / FPS).toFixed(1)} s → ${this.file}`);
+    this.ff.proc.stdin.end();
+    await this.ff.done;
+    const seconds = this.written / FPS;
+    writeFileSync(path.join(OUT, this.cmds), this.commands());
+    // Pass 2: draw the pointer and click ripples at 25 fps, then encode the deliverable.
+    const graph = `[0:v]sendcmd=f=${this.cmds}[v];[v][1:v]overlay@ring=x=-2000:y=-2000:eval=frame:shortest=1[r];` +
+      `[r][2:v]overlay@cur=x=-2000:y=-2000:eval=frame:shortest=1,format=yuv420p`;
+    await ffmpeg(['-i', this.raw, '-loop', '1', '-i', 'ring.png', '-loop', '1', '-i', 'cursor.png',
+      '-filter_complex', graph, '-c:v', 'libx264', '-preset', 'medium', '-crf', '17', '-r', String(FPS),
+      '-movflags', '+faststart', this.file], OUT).done;
+    rmSync(path.join(OUT, this.raw), { force: true });
+    rmSync(path.join(OUT, this.cmds), { force: true });
+    console.log(`■ ${this.name}: ${seconds.toFixed(1)} s, page capture ${(this.frames / seconds).toFixed(1)} fps → ${path.join(OUT, this.file)}`);
   }
 }
 
@@ -130,7 +187,6 @@ async function ready(page, url) {
   await sleep(2500); // Blazor circuit connects
   await page.mouse.move(mouse.x, mouse.y);
 }
-
 const text = (page, s) => page.getByText(s, { exact: false }).first();
 
 const clips = {
@@ -140,8 +196,14 @@ const clips = {
       await sleep(3000);
       await wander(page, [[560, 450], [1200, 500]], 700);
       await click(page, page.getByRole('button', { name: /Run/ }));
-      await text(page, 'Measured run complete').waitFor({ timeout: 15 * 60_000 });
+      await text(page, 'Clinic day complete').waitFor({ timeout: 15 * 60_000 });
+      await sleep(4000);
+      await click(page, page.getByText('Behind the chart · SQL workload and samples'));
+      await sleep(600);
+      await moveTo(page, page.locator('details.panel pre.code'), 400);
       await sleep(6000);
+      await scrollToTop(page);
+      await sleep(2000);
     });
   },
   async 'p1-paused'(page) {
@@ -165,21 +227,21 @@ const clips = {
     await ready(page, '/network');
     await record(page, 'p2-acquisitions', async () => {
       await sleep(3000);
-      await wander(page, [[340, 300], [770, 300], [1200, 300]], 900);
-      await click(page, page.getByRole('button', { name: 'Add these databases to a pool' }));
-      await sleep(1200);
-      await scrollBy(page, 260);
-      await sleep(7000);
+      await wander(page, [[340, 300], [770, 300], [1200, 300]], 1400);
+      await moveTo(page, page.getByRole('heading', { name: /One scheduling network/ }), 500);
+      await sleep(5000);
     });
   },
   async 'p2-verify'(page) {
     await ready(page, '/verify');
     await record(page, 'p2-verify', async () => {
       await sleep(3000);
-      await moveTo(page, page.getByRole('link', { name: 'Open pool in Azure portal' }), 1500);
-      await click(page, page.getByRole('button', { name: 'Check cross-database reads' }));
-      await page.getByRole('status').waitFor({ timeout: 15_000 });
-      await sleep(8000);
+      await click(page, page.getByRole('button', { name: /Check network/ }));
+      await text(page, '✓ Reachable').waitFor({ timeout: 15_000 });
+      await sleep(1500);
+      await wander(page, [[340, 420], [770, 420], [1200, 420]], 1100);
+      await moveTo(page, page.getByRole('heading', { name: 'What the app runs' }), 400);
+      await sleep(6000);
     });
   },
   async 'p2-scale'(page) {
@@ -229,8 +291,8 @@ const clips = {
       await moveTo(page, page.locator('table.slots'), 800);
       await click(page, page.locator('table.slots tbody tr').first().getByRole('button', { name: 'Book slot' }));
       await sleep(3000);
-      await moveTo(page, page.getByRole('heading', { name: 'Booking · one conditional write' }), 400);
-      await sleep(6000);
+      await moveTo(page, page.getByRole('heading', { name: /^Booking · one transaction/ }), 400);
+      await sleep(8000);
       // A colleague in another session books the next Ridgeview opening first.
       await colleague.goto(BASE + '/appointments');
       await colleague.waitForLoadState('networkidle');
@@ -257,9 +319,9 @@ const clips = {
 
 const order = ['p1-run', 'p1-paused', 'p1-resume', 'p2-acquisitions', 'p2-verify', 'p2-scale', 'p2-growth', 'p2-search-book'];
 const selected = process.argv.slice(2).length ? process.argv.slice(2) : order;
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const browser = await chromium.launch({ channel: 'msedge', headless: true, args: [`--force-device-scale-factor=${DSF}`, `--window-size=${CW},${CH}`] });
 const context = await browser.newContext({ viewport: { width: CW, height: CH }, deviceScaleFactor: DSF });
-await context.addInitScript(cursorScript);
+await makeOverlays(browser);
 const page = await context.newPage();
 try {
   for (const name of selected) {

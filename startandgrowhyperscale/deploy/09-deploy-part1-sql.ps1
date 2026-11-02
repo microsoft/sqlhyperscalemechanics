@@ -22,7 +22,7 @@ if ($AutoPauseDelay -ne -1 -and $AutoPauseDelay -lt 60) {
 if ($MinVCores -le 0 -or $MinVCores -gt $MaxVCores) { throw "Minimum vCores ($MinVCores) must be above 0 and no more than maximum ($MaxVCores)." }
 
 Invoke-Az @('account', 'set', '--subscription', $SubscriptionId, '--output', 'none') | Out-Null
-if (-not $ClientIp) { $ClientIp = (Invoke-RestMethod -Uri 'https://api.ipify.org').Trim() }
+if (-not $ClientIp -and -not $AllowAzureServices) { $ClientIp = (Invoke-RestMethod -Uri 'https://api.ipify.org').Trim() }
 $objective = "HS_S_Gen5_$MaxVCores"
 $autoPauseText = if ($AutoPauseDelay -eq -1) { 'disabled' } else { "$AutoPauseDelay min" }
 
@@ -37,7 +37,7 @@ Write-Step 'Plan'
     AutoPause         = $autoPauseText
     BackupRedundancy  = $BackupStorageRedundancy
     ZoneRedundant     = $ZoneRedundant
-    Firewall          = "PresenterClient $ClientIp" + $(if ($AllowAzureServices) { '; Allow Azure services' } else { '' })
+    Firewall          = (@($(if ($ClientIp) { "PresenterClient $ClientIp" }), $(if ($AllowAzureServices) { 'Allow Azure services' })) | Where-Object { $_ }) -join '; '
 } | Format-List | Out-String | Write-Host
 
 Write-Step "Logical server $Part1SqlServerName ($SqlLocation)"
@@ -58,7 +58,7 @@ elseif ($PSCmdlet.ShouldProcess($Part1SqlServerFqdn, 'Create logical server (Mic
     Write-Ok "Created (Microsoft Entra-only; admin $($signedInUser.userPrincipalName))"
 }
 
-if ($PSCmdlet.ShouldProcess($Part1SqlServerFqdn, "Firewall rule PresenterClient = $ClientIp")) {
+if ($ClientIp -and $PSCmdlet.ShouldProcess($Part1SqlServerFqdn, "Firewall rule PresenterClient = $ClientIp")) {
     Invoke-Az @('sql', 'server', 'firewall-rule', 'create', '--resource-group', $ResourceGroup,
         '--server', $Part1SqlServerName, '--name', 'PresenterClient', '--start-ip-address', $ClientIp,
         '--end-ip-address', $ClientIp, '--output', 'json') | Out-Null

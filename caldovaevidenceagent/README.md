@@ -114,10 +114,18 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 npm ci --prefix app
 npm run build --prefix app
+npm run lint --prefix app
+npm audit --prefix app
 dotnet build .\agent\hosted\caldova-evidence-hosted\src\foundry-toolbox-mcp-skills\foundry-toolbox-mcp-skills.csproj --configuration Release
 ```
 
 ## Run Locally
+
+The app's Docker build uses `npm ci` to install the committed lockfile exactly.
+The lockfile retains versions and integrity hashes without registry-specific
+download URLs, so local feed settings are not required by container builds.
+Dependency upgrades and successful local checks do not patch an existing Azure
+deployment; rebuild, deploy, and verify authentication and agent calls separately.
 
 After the hosted agent is deployed:
 

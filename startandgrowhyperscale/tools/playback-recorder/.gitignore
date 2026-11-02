@@ -2,3 +2,5 @@ node_modules/
 clips/
 trial/
 frames/
+*.raw.mkv
+*.cmds.txt

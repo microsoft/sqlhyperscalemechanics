@@ -18,4 +18,8 @@ public sealed record AvailabilityResult(
     IReadOnlyList<AppointmentSlot> Slots,
     AppointmentSlot? EarliestCaldovaOnly);
 
-public sealed record BookingResult(bool Booked, string QueryText);
+public sealed record BookingResult(bool Booked, string QueryText, long? AppointmentId = null);
+
+public sealed record ProviderReach(string ProviderKey, string Database, long OpenSlots);
+
+public sealed record NetworkCheck(string SourceDatabase, IReadOnlyList<ProviderReach> Providers, string QueryText, DateTimeOffset CheckedAt);

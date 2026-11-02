@@ -84,6 +84,8 @@ code, .mono { font-family: "Cascadia Mono", "Consolas", monospace; font-size: 0.
 /* ---------- headers / buttons ---------- */
 .page-header h1 { margin: 0; font-size: clamp(1.35rem, 1.1rem + 1.2vw, 2.05rem); font-weight: 780; }
 .page-header p { margin: 0.4rem 0 0; color: var(--muted); max-width: 70ch; }
+.acquisitions-header { margin-bottom: 1.5rem; }
+.acquisitions-header > p { max-width: none; }
 .heading-row { display: flex; justify-content: space-between; align-items: end; gap: 1rem; flex-wrap: wrap; }
 .eyebrow {
     margin: 0 0 0.25rem !important; color: var(--accent-strong) !important;
@@ -170,7 +172,7 @@ code, .mono { font-family: "Cascadia Mono", "Consolas", monospace; font-size: 0.
 .board-heading h2 { margin: 0; font-size: 1.02rem; }
 .board-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; min-height: 350px; align-content: start; }
 .board-row {
-    display: grid; grid-template-columns: 52px 104px minmax(90px, 0.9fr) minmax(150px, 1.3fr) minmax(170px, 1.2fr) 30px;
+    display: grid; grid-template-columns: minmax(52px, max-content) 104px minmax(90px, 0.9fr) minmax(150px, 1.3fr) minmax(170px, 1.2fr) 30px;
     align-items: center; gap: 0.6rem; padding: 0.4rem 0.65rem; border-radius: 8px;
     background: #f7faf9; border: 1px solid #e6eeec; animation: slide-in 0.35s ease-out;
 }
@@ -250,6 +252,74 @@ code, .mono { font-family: "Cascadia Mono", "Consolas", monospace; font-size: 0.
 .pool-header small { color: var(--muted); }
 .pool-icon { font-size: 1.6rem; color: #c58a16; }
 
+.network-header { margin-bottom: 1.5rem; }
+.network-pool { min-inline-size: 0; margin: 0; padding: 1rem; border: 3px dashed var(--line); border-radius: 16px; }
+.network-pool.pool-verified { border-style: solid; border-color: var(--gold); background: color-mix(in srgb, var(--gold) 4%, white); }
+.network-pool legend { max-width: 100%; padding: 0.25rem 0.65rem; font-size: 0.9rem; font-weight: 800; overflow-wrap: anywhere; }
+.shared-vcores { display: inline-flex; justify-content: center; max-width: 100%; padding: 0.4rem 0.65rem; border: 2px solid var(--gold); border-radius: 999px; background: color-mix(in srgb, var(--gold) 12%, white); font-weight: 800; text-align: center; }
+.database-vcore-limits { display: block; margin-top: 0.25rem; color: var(--muted); font-size: 0.75rem; line-height: 1.3; }
+.clinic-metrics, .clinic-growth-space { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.clinic-cpu-chart { width: 100%; height: 80px; margin-top: 0.75rem; }
+.clinic-cpu-chart polyline { fill: none; stroke: var(--provider); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.clinic-growth-space { min-height: 90px; }
+.clinic-growth-space h3 { margin: 0; font-size: 1rem; }
+.growth-reading { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.35rem; font-size: 0.84rem; }
+.growth-reading strong { white-space: nowrap; }
+.growth-reading progress { flex: 1; min-width: 0; width: 0; height: 6px; appearance: none; border: 0; }
+.growth-reading progress::-webkit-progress-bar { background: var(--line); border-radius: 999px; }
+.growth-reading progress::-webkit-progress-value { background: var(--provider); border-radius: 999px; }
+.pool-scale-page .network-header { margin-bottom: 0.75rem; }
+.pool-scale-page .page-header h1 { font-size: 1.5rem; }
+.pool-scale-page .page-header > div > p:last-child { font-size: 0.9rem; max-width: 42ch; }
+.shell:has(.pool-scale-page) .content { margin: 0.75rem auto 0.5rem; }
+.pool-scale-page .btn { min-height: 38px; padding: 0.45rem 0.7rem; font-size: 0.9rem; }
+.pool-scale-page .network-pool { padding: 0.75rem; }
+.pool-scale-page .provider-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+.pool-scale-page .provider-card { min-width: 0; padding: 1rem; }
+.pool-scale-page .provider-card header { margin: -1rem -1rem 0; padding: 0.85rem 1rem; }
+.pool-scale-page .provider-card header h2 { font-size: 1.1rem; line-height: 1.2; }
+.pool-scale-page .provider-tag { display: none; }
+.pool-scale-page .provider-card dl { margin-top: 0.85rem; gap: 0.65rem; }
+.pool-scale-page .provider-card dl > div { grid-template-columns: 80px minmax(0, 1fr); gap: 0.35rem; }
+.pool-scale-page .provider-card dt { font-size: 0.68rem; }
+.pool-scale-page .provider-card dd { font-size: 0.84rem; overflow-wrap: anywhere; }
+.pool-scale-page .provider-card dd code { font-size: 0.8rem; }
+.pool-scale-page .shared-vcores { padding: 0.25rem 0.45rem; }
+.pool-scale-page .clinic-metrics, .pool-scale-page .clinic-growth-space { margin-top: 1rem; padding-top: 1rem; }
+.pool-scale-page .provider-stats strong { font-size: 1.6rem; }
+.pool-scale-page .provider-stats span { display: block; font-size: 0.76rem; line-height: 1.2; }
+.pool-scale-page .clinic-growth-space { min-height: 90px; }
+.pool-scale-page .growth-reading { margin-top: 0.65rem; font-size: 0.95rem; }
+.pool-scale-page .growth-reading progress { height: 8px; }
+.pool-scale-page .storage-expansion {
+    margin-top: 0.75rem; padding: 0.65rem 0.75rem; border: 2px solid var(--provider); border-radius: 10px;
+    background: color-mix(in srgb, var(--provider) 12%, white);
+}
+.pool-scale-page .storage-expansion > span { display: block; font-size: 0.8rem; font-weight: 800; }
+.pool-scale-page .storage-expansion strong {
+    display: block; margin: 0.2rem 0; font-size: clamp(1.5rem, 2.6vw, 2.25rem); line-height: 1.1;
+    color: color-mix(in srgb, var(--provider) 65%, black); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.pool-scale-page .storage-expansion small { display: block; font-size: 0.75rem; }
+.pool-scale-page .provider-card:has(.storage-expanded) {
+    border-color: var(--provider); animation: storage-expansion-emphasis 1.5s ease-out 2;
+}
+@keyframes storage-expansion-emphasis {
+    0%, 100% { box-shadow: var(--shadow); }
+    50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--provider) 25%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .pool-scale-page .provider-card:has(.storage-expanded) { animation: none; }
+}
+@media (min-width: 900px) and (max-width: 1050px) {
+    .shell:has(.pool-scale-page) .content { margin-bottom: 0; }
+    .pool-scale-page .clinic-metrics, .pool-scale-page .clinic-growth-space {
+        margin-top: 0.65rem; padding-top: 0.65rem;
+    }
+    .pool-scale-page .provider-card dl { margin-top: 0.65rem; gap: 0.4rem; }
+    .pool-scale-page .storage-expansion { margin-top: 0.5rem; padding-block: 0.45rem; }
+}
+.pool-scale-page .footnote { margin: 0.35rem 0 0; font-size: 0.76rem; line-height: 1.3; }
 .provider-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .provider-card {
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1rem;
@@ -260,6 +330,17 @@ code, .mono { font-family: "Cascadia Mono", "Consolas", monospace; font-size: 0.
 .provider-caldova { --provider: var(--accent); }
 .provider-northbrook { --provider: var(--blue); }
 .provider-ridgeview { --provider: var(--coral); }
+.acquisition-card { background: color-mix(in srgb, var(--provider) 5%, white); overflow: hidden; }
+.acquisition-card header { margin: -1rem -1rem 0; padding: 1rem; background: color-mix(in srgb, var(--provider) 16%, white); }
+.acquisition-card .provider-tag { color: color-mix(in srgb, var(--provider) 70%, black); }
+.provider-profile { margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid color-mix(in srgb, var(--provider) 25%, white); }
+.provider-profile h3 { margin: 0; font-size: 1rem; }
+.provider-profile .profile-note { margin: 0.25rem 0 0.8rem; color: var(--muted); font-size: 0.75rem; }
+.provider-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
+.provider-stats strong { display: block; font-size: clamp(1.05rem, 1.5vw, 1.5rem); font-variant-numeric: tabular-nums; }
+.provider-stats span { color: var(--muted); font-size: 0.75rem; }
+.provider-profile h4 { margin: 1rem 0 0.3rem; font-size: 0.75rem; text-transform: uppercase; color: var(--muted); }
+.provider-profile > p:last-child { margin: 0; font-size: 0.9rem; line-height: 1.5; }
 .provider-card header h2 { margin: 0.25rem 0 0.1rem; font-size: 1.2rem; }
 .provider-card header small { color: var(--muted); }
 .provider-tag {
@@ -338,6 +419,13 @@ code, .mono { font-family: "Cascadia Mono", "Consolas", monospace; font-size: 0.
 
 @media (max-width: 1100px) {
     .scene, .integration-layout, .appointments-layout, .provider-grid { grid-template-columns: 1fr; }
+    .shell:has(.pool-scale-page) .brand-sub { display: none; }
+    .shell:has(.pool-scale-page) .brand { font-size: 0.85rem; }
+    .shell:has(.pool-scale-page) .nav-item { padding: 0.4rem 0.5rem; font-size: 0.85rem; }
+    .shell:has(.pool-scale-page) .topbar { gap: 0.5rem; padding: 0.6rem 0.8rem; }
+}
+@media (max-width: 899px) {
+    .pool-scale-page .provider-grid { grid-template-columns: 1fr; }
 }
 
 /* Playback: Scale & Grow page */

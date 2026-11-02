@@ -13,6 +13,8 @@ public sealed record ServerlessCpuSample(DateTimeOffset At, double CpuPercent, d
 
 public class ServerlessSqlTelemetry(IConfiguration configuration)
 {
+    protected virtual SqlConnection CreateConnection(string connectionString) => new(connectionString);
+    protected virtual int CommandTimeoutSeconds => 15;
     public virtual async Task<IReadOnlyList<ServerlessCpuSample>> ReadAsync(
         ServerlessConfiguration database, DateTimeOffset from, CancellationToken token)
     {
@@ -23,9 +25,9 @@ public class ServerlessSqlTelemetry(IConfiguration configuration)
             WHERE end_time >= @from AND replica_role = 0
             ORDER BY end_time;
             """;
-        await using var connection = new SqlConnection(settings.ConnectionString);
+        await using var connection = CreateConnection(settings.ConnectionString);
         await connection.OpenAsync(token);
-        using var command = new SqlCommand(query, connection) { CommandTimeout = 15 };
+        using var command = new SqlCommand(query, connection) { CommandTimeout = CommandTimeoutSeconds };
         command.Parameters.Add("@from", SqlDbType.DateTime).Value = from.UtcDateTime;
         await using var reader = await command.ExecuteReaderAsync(token);
         var samples = new List<ServerlessCpuSample>();

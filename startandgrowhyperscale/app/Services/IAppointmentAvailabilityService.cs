@@ -13,5 +13,5 @@ public interface IAppointmentAvailabilityService
     string ViewDefinition { get; }
     Task<AvailabilityResult> FindNextAsync(string specialty, bool networkWide, CancellationToken cancellationToken = default);
     Task<BookingResult> BookAsync(string providerKey, long slotId, CancellationToken cancellationToken = default);
-    Task<string> CheckAccessAsync(CancellationToken cancellationToken = default);
+    Task<NetworkCheck> CheckNetworkAsync(CancellationToken cancellationToken = default);
 }

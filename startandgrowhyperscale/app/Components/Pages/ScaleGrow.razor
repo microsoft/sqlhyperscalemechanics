@@ -7,7 +7,7 @@
 <PageTitle>Scale and grow · Caldova</PageTitle>
 @if (Pool is null)
 {
-    <section class="page-header"><h1>Not available</h1><p>This page is part of playback mode only.</p></section>
+    <section class="page-header"><h1>Not available</h1><p>This scene is disabled on this host.</p></section>
     return;
 }
 <section class="page-header heading-row">
@@ -111,7 +111,7 @@
     <h2>Operations</h2>
     @if (snap.Events.Count == 0)
     {
-        <p class="muted">Start the workload, then scale the pool.</p>
+        <p class="muted">No operations yet.</p>
     }
     else
     {
@@ -123,10 +123,6 @@
         </ol>
     }
 </section>
-<div class="transport">
-    <NavLink class="btn btn-secondary" href="/verify">Back · Verify Pool</NavLink>
-    <NavLink class="btn btn-primary" href="/appointments">Next · Step 4: search and book</NavLink>
-</div>
 
 @code {
     private const double W = 600, H = 160, MaxRps = 760;

@@ -26,6 +26,17 @@ BEGIN
         INCLUDE (ClinicId, Clinician, DurationMinutes);
 END;
 
+-- Written by network bookings from Caldova in the same transaction as the slot update.
+IF OBJECT_ID(N'dbo.Appointment', N'U') IS NULL
+    CREATE TABLE dbo.Appointment
+    (
+        AppointmentId bigint IDENTITY(1,1) NOT NULL CONSTRAINT PK_Appointment PRIMARY KEY,
+        SlotId bigint NOT NULL CONSTRAINT FK_Appointment_Slot REFERENCES dbo.AppointmentSlot (SlotId),
+        BookedAtUtc datetime2(0) NOT NULL,
+        BookedVia nvarchar(40) NOT NULL,
+        CONSTRAINT UQ_Appointment_Slot UNIQUE (SlotId)
+    );
+
 DECLARE @schedule TABLE (Specialty nvarchar(80), LeadDays int, Clinician nvarchar(100));
 IF DB_NAME() = N'caldova-scheduling'
     INSERT @schedule VALUES

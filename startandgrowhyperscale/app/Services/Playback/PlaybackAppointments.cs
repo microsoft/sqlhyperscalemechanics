@@ -89,15 +89,15 @@ public sealed class PlaybackAppointmentAvailabilityService : IAppointmentAvailab
         }
     }
 
-    public async Task<string> CheckAccessAsync(CancellationToken cancellationToken = default)
+    public async Task<NetworkCheck> CheckNetworkAsync(CancellationToken cancellationToken = default)
     {
-        await Task.Delay(750, cancellationToken);
+        await Task.Delay(650, cancellationToken);
         lock (gate)
         {
-            var counts = slots.Where(s => !s.Booked).GroupBy(s => s.Key).OrderBy(g => g.Key, StringComparer.Ordinal)
-                .Select(g => $"{g.Key}: {g.Count()} unbooked slots");
-            return "Cross-database view executed from caldova-scheduling. " + string.Join("; ", counts) +
-                ". This checks reads, not booking permissions or pool configuration.";
+            var providers = Providers.Keys.OrderBy(k => k, StringComparer.Ordinal)
+                .Select(k => new ProviderReach(k, SqlAppointmentAvailabilityService.GetDatabase(k), slots.Count(s => s.Key == k && !s.Booked)))
+                .ToList();
+            return new NetworkCheck("caldova-scheduling", providers, SqlAppointmentAvailabilityService.NetworkCheckQuery, DateTimeOffset.UtcNow);
         }
     }
 

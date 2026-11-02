@@ -6,17 +6,21 @@ public sealed record SqlWorkloadSnapshot(bool Running, int Workers, long Complet
     DateTimeOffset? Started, DateTimeOffset? Finished, string? Error, int Active = 0, WorkloadRamp? Ramp = null);
 
 /// <summary>
-/// Staged load: worker i starts at i × StepUp; after Hold at peak, workers stop one per StepDown
+/// Staged load: InitialWorkers start immediately, then WorkersPerStep per StepUp; after Hold at peak, groups stop per StepDown.
+/// WorkersPerStepDown optionally sets a different stopping group size.
 /// (last started stops first). Each stopping worker finishes its in-flight batch; no command is cancelled.
 /// </summary>
-public sealed record WorkloadRamp(int PeakWorkers, TimeSpan StepUp, TimeSpan Hold, TimeSpan StepDown)
+public sealed record WorkloadRamp(int PeakWorkers, TimeSpan StepUp, TimeSpan Hold, TimeSpan StepDown,
+    int InitialWorkers = 1, int WorkersPerStep = 1, int? WorkersPerStepDown = null)
 {
     public WorkloadRamp(int peakWorkers, TimeSpan step, TimeSpan hold) : this(peakWorkers, step, hold, step) { }
 
     public static readonly TimeSpan MaximumTotal = TimeSpan.FromMinutes(10);
-    public TimeSpan PeakAt => StepUp * (PeakWorkers - 1);
-    public TimeSpan StartAt(int worker) => StepUp * worker;
-    public TimeSpan StopAt(int worker) => PeakAt + Hold + StepDown * (PeakWorkers - 1 - worker);
+    public TimeSpan PeakAt => StepUp * ((PeakWorkers - InitialWorkers + WorkersPerStep - 1) / WorkersPerStep);
+    public TimeSpan StartAt(int worker) => worker < InitialWorkers ? TimeSpan.Zero
+        : StepUp * ((worker - InitialWorkers) / WorkersPerStep + 1);
+    public TimeSpan StopAt(int worker) => PeakAt + Hold
+        + StepDown * ((PeakWorkers - 1 - worker) / (WorkersPerStepDown ?? WorkersPerStep));
     public TimeSpan Total => StopAt(0);
     public int ActiveAt(TimeSpan elapsed) =>
         Enumerable.Range(0, PeakWorkers).Count(i => elapsed >= StartAt(i) && elapsed < StopAt(i));
@@ -24,6 +28,12 @@ public sealed record WorkloadRamp(int PeakWorkers, TimeSpan StepUp, TimeSpan Hol
     public void Validate()
     {
         if (PeakWorkers is < 1 or > 16) throw new ArgumentOutOfRangeException(nameof(PeakWorkers), "Use 1-16 peak workers.");
+        if (InitialWorkers < 1 || InitialWorkers > PeakWorkers)
+            throw new ArgumentOutOfRangeException(nameof(InitialWorkers), "Initial workers must be between one and the peak.");
+        if (WorkersPerStep is < 1 or > 16)
+            throw new ArgumentOutOfRangeException(nameof(WorkersPerStep), "Use 1-16 workers per ramp step.");
+        if (WorkersPerStepDown is < 1 or > 16)
+            throw new ArgumentOutOfRangeException(nameof(WorkersPerStepDown), "Use 1-16 workers per ramp-down step.");
         if (StepUp < TimeSpan.FromSeconds(5) || StepUp > TimeSpan.FromSeconds(120)
             || StepDown < TimeSpan.FromSeconds(5) || StepDown > TimeSpan.FromSeconds(120))
             throw new ArgumentOutOfRangeException(nameof(StepUp), "Use 5-120 second ramp steps.");
@@ -36,9 +46,7 @@ public sealed record WorkloadRamp(int PeakWorkers, TimeSpan StepUp, TimeSpan Hol
 
 public class ServerlessSqlWorkload(IConfiguration configuration, ILogger<ServerlessSqlWorkload> logger) : IAsyncDisposable
 {
-    public const string Query = """
-        SET NOCOUNT ON;
-        DECLARE @remaining int = 50000;
+    protected const string CpuCalculation = """
         DECLARE @value varbinary(32) = 0x43616C646F7661;
         WHILE @remaining > 0
         BEGIN
@@ -47,7 +55,10 @@ public class ServerlessSqlWorkload(IConfiguration configuration, ILogger<Serverl
         END;
         SELECT @value;
         """;
+    public const string Query = "SET NOCOUNT ON;\nDECLARE @remaining int = 50000;\n" + CpuCalculation;
     private readonly object gate = new();
+    protected virtual string BatchQuery => Query;
+    protected virtual SqlConnection CreateConnection(string connectionString) => new(connectionString);
     private CancellationTokenSource? cancellation;
     private Task? execution;
     private SqlWorkloadSnapshot snapshot = new(false, 0, 0, 0, null, null, null);
@@ -56,10 +67,17 @@ public class ServerlessSqlWorkload(IConfiguration configuration, ILogger<Serverl
 
     public virtual void Start(ServerlessConfiguration database, int workers, int minutes)
     {
-        if (!Enabled) throw new InvalidOperationException("SQL load generation is disabled. Enable only for an approved, access-restricted demo.");
         if (workers is < 1 or > 16 || minutes is < 1 or > 10)
             throw new ArgumentOutOfRangeException(nameof(workers), "Use 1-16 workers for 1-10 minutes.");
-        Launch(database, workers, TimeSpan.FromMinutes(minutes), null);
+        Start(database, workers, TimeSpan.FromMinutes(minutes));
+    }
+
+    public virtual void Start(ServerlessConfiguration database, int workers, TimeSpan duration)
+    {
+        if (!Enabled) throw new InvalidOperationException("SQL load generation is disabled. Enable only for an approved, access-restricted demo.");
+        if (workers is < 1 or > 16 || duration < TimeSpan.FromSeconds(15) || duration > TimeSpan.FromMinutes(10))
+            throw new ArgumentOutOfRangeException(nameof(duration), "Use 1-16 workers for 15-600 seconds.");
+        Launch(database, workers, duration, null);
     }
 
     public virtual void StartRamp(ServerlessConfiguration database, WorkloadRamp ramp)
@@ -105,13 +123,13 @@ public class ServerlessSqlWorkload(IConfiguration configuration, ILogger<Serverl
         {
             var delay = startAt - clock.Elapsed;
             if (delay > TimeSpan.Zero) await Task.Delay(delay, token);
-            await using var connection = new SqlConnection(connectionString);
+            await using var connection = CreateConnection(connectionString);
             await connection.OpenAsync(token);
             lock (gate) snapshot = snapshot with { Active = snapshot.Active + 1 };
             active = true;
             while (!token.IsCancellationRequested && (stopAt is null || clock.Elapsed < stopAt))
             {
-                using var command = new SqlCommand(Query, connection) { CommandTimeout = 15 };
+                using var command = new SqlCommand(BatchQuery, connection) { CommandTimeout = 15 };
                 var result = await command.ExecuteScalarAsync(token);
                 if (result is null or DBNull)
                     throw new InvalidOperationException("The CPU calculation returned no result.");
