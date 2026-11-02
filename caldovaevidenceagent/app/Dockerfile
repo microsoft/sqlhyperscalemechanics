@@ -3,7 +3,7 @@ FROM node:22-alpine
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-fund
 
 COPY . .
 # Host files inherit restrictive permissions, so normalise them for the runtime user.

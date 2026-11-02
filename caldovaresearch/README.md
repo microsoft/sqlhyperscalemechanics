@@ -18,6 +18,23 @@ demo will not want to take on.
 The application contract does not change with scale. The same query shape and the same
 result contract run against 10K, 100K, or 1M.
 
+## Application dependency checks
+
+Before publishing the app, run from this directory:
+
+```powershell
+npm ci --prefix app
+npm run build --prefix app
+npm run lint --prefix app
+npm audit --prefix app
+```
+
+The app's Docker build uses `npm ci` to install the committed lockfile exactly.
+The lockfile retains versions and integrity hashes without registry-specific
+download URLs, so local feed settings are not required by container builds.
+Dependency upgrades and successful local checks do not patch an existing Azure
+deployment; rebuild, deploy, and verify authentication and search separately.
+
 ## How search works
 
 The corpus was ingested with **`minishlab/potion-base-32M`** through model2vec, producing
