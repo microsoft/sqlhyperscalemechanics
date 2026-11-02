@@ -1,12 +1,17 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('Schema', 'Network', 'Verify')]
-    [string]$Phase
+    [ValidateSet('Schema', 'Network', 'Verify', 'Storage')]
+    [string]$Phase,
+    [switch]$IncludeStorageFill
 )
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\00-config.ps1"
+if ($Phase -eq 'Storage') {
+    & "$PSScriptRoot\11-fill-demo-storage.ps1"
+    return
+}
 Import-Module SqlServer -ErrorAction Stop
 
 if ($AppName -ne 'app-caldova-network-0efc44' -or $CaldovaDatabase -ne 'caldova-scheduling') {
@@ -17,13 +22,17 @@ $databaseNames = @($CaldovaDatabase) + @($AcquiredDatabases | ForEach-Object { $
 $sqlRoot = Join-Path $PSScriptRoot '..\sql'
 
 function Invoke-SchedulingFile {
-    param([string]$Database, [string]$File)
+    param([string]$Database, [string]$File, [string[]]$Variables = @())
     Write-Step "$Database : $File"
     $token = Invoke-Az @('account', 'get-access-token', '--subscription', $SubscriptionId,
         '--resource', 'https://database.windows.net/', '--output', 'json')
-    Invoke-Sqlcmd -ServerInstance $SqlServerFqdn -Database $Database -AccessToken $token.accessToken `
-        -InputFile (Join-Path $sqlRoot $File) -ConnectionTimeout 90 -QueryTimeout 120 `
-        -Encrypt Mandatory -AbortOnError -OutputSqlErrors $true -ErrorAction Stop
+    $options = @{
+        ServerInstance = $SqlServerFqdn; Database = $Database; AccessToken = $token.accessToken
+        InputFile = (Join-Path $sqlRoot $File); ConnectionTimeout = 90; QueryTimeout = 120
+        Encrypt = 'Mandatory'; AbortOnError = $true; OutputSqlErrors = $true; ErrorAction = 'Stop'
+    }
+    if ($Variables.Count -gt 0) { $options.Variable = $Variables }
+    Invoke-Sqlcmd @options
     Write-Ok "$File completed"
 }
 
@@ -45,11 +54,20 @@ switch ($Phase) {
         foreach ($name in $databaseNames) {
             Invoke-SchedulingFile $name '01-scheduling-schema.sql'
         }
+        if ($IncludeStorageFill) { & "$PSScriptRoot\11-fill-demo-storage.ps1" }
     }
     'Network' {
+        $token = Invoke-Az @('account', 'get-access-token', '--subscription', $SubscriptionId,
+            '--resource', 'https://database.windows.net/', '--output', 'json')
+        $login = Invoke-Sqlcmd -ServerInstance $SqlServerFqdn -Database 'master' -AccessToken $token.accessToken `
+            -Query "SELECT CONVERT(varchar(172), sid, 1) AS AppLoginSid FROM sys.server_principals WHERE name = N'app-caldova-network-0efc44';" `
+            -ConnectionTimeout 90 -QueryTimeout 120 -Encrypt Mandatory -AbortOnError -ErrorAction Stop
+        if ($null -eq $login -or $login.AppLoginSid -notmatch '^0x[0-9a-fA-F]{32}$') {
+            throw 'The expected app login must exist in master with a valid SID before deploying the network view.'
+        }
         Invoke-SchedulingFile $CaldovaDatabase '02-network-view.sql'
         foreach ($name in $databaseNames) {
-            Invoke-SchedulingFile $name '03-app-permissions.sql'
+            Invoke-SchedulingFile $name '03-app-permissions.sql' -Variables @("AppLoginSid=$($login.AppLoginSid)")
         }
     }
     'Verify' {

@@ -133,16 +133,18 @@ try {
     $passed++
 
     $script:fixture.Updates.Clear()
-    & $scriptPath -Mode Pooled | Out-Null
+    $summaryOutput = @(& $scriptPath -Mode Pooled)
     Assert-True ($script:fixture.Updates.Count -eq 0) 'Repeated pooled operation must be a no-op'
+    Assert-True ($summaryOutput.Count -eq 0) 'Pooled summary must render to the host without leaking formatting-control objects into the output pipeline'
     $passed++
 
     & $scriptPath -Mode Standalone -WhatIf | Out-Null
     Assert-True ($script:fixture.Updates.Count -eq 0) 'Standalone WhatIf must not update resources'
     $passed++
 
-    & $scriptPath -Mode Standalone | Out-Null
+    $summaryOutput = @(& $scriptPath -Mode Standalone)
     Assert-True ($script:fixture.Updates.Count -eq 4) 'Reset requires detach, serverless conversion, and two provisioned resets'
+    Assert-True ($summaryOutput.Count -eq 0) 'Standalone summary must render to the host without leaking formatting-control objects into the output pipeline'
     Assert-True ($script:fixture.Databases[$names[0]].currentServiceObjectiveName -eq 'HS_S_Gen5_8') 'Restore Caldova serverless'
     Assert-True ($script:fixture.Databases[$names[0]].minCapacity -eq 1) 'Restore minimum vCores'
     Assert-True ($script:fixture.Databases[$names[0]].autoPauseDelay -eq 60) 'Restore auto-pause'

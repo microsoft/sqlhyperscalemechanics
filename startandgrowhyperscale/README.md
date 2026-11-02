@@ -45,6 +45,258 @@ Retry logic, retry instrumentation, and retry tests are not part of the build.
 
 ## Live app
 
+### Local pool scaling controls
+
+**Growth presentation:** The explicitly selected local route
+`/scale-presentation` uses `PoolPresentation__Enabled=true`. It animates gradual
+CPU demand and Caldova's 18/20-GiB baseline using an in-memory model. It stops
+as soon as the 20-to-30-GiB allocation callout appears, normally around sixteen
+seconds, within the thirty-second maximum. Its controls never call Azure or SQL; each new take resets only that
+model. Scale controls remain available during the run and do not restart its
+clock or storage growth. Whole-core readings start at two and stay within the
+selected pool capacity. The 24-vCore model uses a zero-to-twelve per-database cap
+and unequal CPU demand: Caldova rises to twelve while the other schedules shift
+independently, ending at twelve/seven/five. Each card shows shared capacity and
+per-database minimum/maximum separately from CPU-used readings. At eight pool
+vCores, the modeled cap is eight and consumption is shared within the total.
+The final cards freeze at their unequal readings and Caldova
+retains 30 GiB allocated until another take. There is no on-screen speed-up
+caption or SQL-sampling claim. This is a
+presentation illustration, not live proof. Step 4 navigation selects this
+route only while the opt-in is enabled; `/scale` remains the separate real page.
+With that opt-in, Network (`/verify`) uses the same circuit-scoped recording
+capacity and limits as Scale, so navigating between the pages preserves the
+selected eight- or twenty-four-core model. Demo screens omit playback,
+illustration, and fictional-data notices for recording. `/verify-live` remains
+directly accessible for independent real Azure inspection, without an on-screen link.
+This cosmetic choice does not make modeled readings live telemetry or change
+the synthetic provider data, mode selection, or operation safety gates.
+With the opt-in disabled, Network continues to read real Azure resources.
+Reloading the browser starts a new recording circuit at its default baseline.
+Keep presentation disabled on public hosts. For recording, disable live
+pool actions with `PoolScaling__Enabled=false` and `PoolGrowth__Enabled=false`.
+
+Local verification: 376 offline checks pass without SQL connections, including
+recording-state Network reads with Azure denied, explicit live inspection, and
+unchanged behavior with recording disabled. Clean normal Edge verified repeated
+Scale -> Network -> Scale navigation at eight, twenty-four, and eight again,
+preserving matching shared capacity and minimum/maximum limits.
+Earlier Edge rehearsal
+verified 24 distinct CPU frames, initial two/two/two and final twelve/seven/five,
+automatic completion on the first 20-to-30-GiB allocation frame, and min/max
+changes during scaling under activity. The real ARM-backed Network page also
+verified shared 24 and minimum zero / maximum twelve on all three cards.
+Prior rehearsal verified scaling
+under activity, the prominent callout, repeat takes, Stop, and
+reduced-motion behavior. Expanded cards fit 1366x768, 1024x768, and 900x700
+without scrolling. The real proof script passed its read-only preview and
+approval guard; its live workload and growth have not been run for this change.
+
+**Real off-camera proof:** Stop other real workload clients and preview
+[13-rehearse-pool-growth.ps1](deploy/13-rehearse-pool-growth.ps1):
+
+```powershell
+.\startandgrowhyperscale\deploy\13-rehearse-pool-growth.ps1 -ExpectedServerName sql-caldova-network-0efc44 -IncludeGrowth -WhatIf
+```
+
+After explicit approval, run without `-WhatIf` (`-Confirm:$false` only after
+that approval). This uses the current CLI identity, existing objects, real
+scheduling/CPU batches, and bounded Caldova payload inserts. It prints UTC SQL
+CPU samples, query successes, actual storage readings, and measured peaks.
+It refuses already-expanded storage and incomplete allocation growth rather
+than claiming success. Omit `-IncludeGrowth` for CPU-only proof. Neither mode
+books appointments, alters compute, sets up schema, or resets any database.
+Presentation timing and real SQL execution time are separate evidence.
+
+Step 4, Scale (`/scale`), offers **Scale Pool to 24** and **Scale Pool to 8**.
+Each click authorizes one real server-side `az sql elastic-pool update`; there
+is no additional confirmation. The command targets the existing configured
+`caldova-network-pool`, keeps minimum zero, sets the per-database maximum to
+12 at 24 pool vCores or 8 at 8 pool vCores, and waits for Azure. Both capacity
+and limits are verified. The twelve-core cap allows unequal bursts without one
+database consuming the entire 24-core pool; it is not an eight-core partition.
+Both buttons are disabled during a scale and when capacity and cap already match.
+All open Scale pages refresh their shared-capacity badges after verification.
+SQL workloads, patient profiles, pool membership, server settings, and data
+are not changed by these buttons.
+
+**Run Scheduling** starts bounded read-only scheduling queries and CPU work on
+all three pooled databases. Each starts two workers and adds two every five
+seconds, reaching nine workers after twenty seconds. Nine workers target
+approximately eight CPU-used vCores; this workload target is not a per-database
+limit or consumption guarantee. Worker counts are not consumed cores.
+These smaller ramp steps spread the rise across more of the sampling window.
+Timing starts at worker launch, excluding connection startup. Pool batches run 100,000 scalar hash
+iterations, down from the timeout-prone million-loop batches; Patient Access's
+50,000 remains unchanged. Smaller batches return results sooner while concurrent
+workers maintain CPU demand. These are worker counts, not allocated
+cores or guaranteed consumption. The target is near 24 CPU-used cores; all
+three workloads previously targeted approximately eight each, so usage
+can converge briefly despite different ramps and holds. The cap policy allows
+uneven demand; changing it does not itself revise or prove the workload curve. Moderately larger cards
+show staff online, scheduling query counts, latest measured CPU values, and
+simple storage bars. There are no CPU charts or full-page-height cards.
+When measured Caldova allocation increases from the current run's initial
+reading, a large **20 → 30 GiB**-style callout shows the actual before/after
+allocation and added capacity. A brief card highlight draws attention to the
+change; the callout remains after Stop and page reload, and respects reduced
+motion. Already-expanded storage does not invent a new allocation event.
+The DMV readouts show
+each database's real CPU consumption, rounded up to whole cores; capacity is
+not consumption. The header sums the three latest CPU averages before whole-core
+rounding; missing or more-than-15-second misaligned samples show no total.
+Stop cancels and joins all workload/observation; errors are
+explicit and no scheduling query is retried. Activity stays running during a
+scale operation. Scheduling queries perform no appointment bookings.
+Only six workers start immediately, rather than twenty, so the first SQL sample
+interval includes the rising load instead of beginning near full CPU usage.
+Samples remain actual 15-second averages, not smoothed or interpolated values;
+the revised CPU curve and near-24 peak still require live rehearsal.
+The shared ramp's optional stopping-group override preserves symmetric grouping
+for Patient Access and other callers that do not supply it.
+Holds are 15 seconds with three workers stopping per five-second ramp-down
+step. Profiles last 45 seconds each. The longest
+profile plus 15-second observation cooldown is 60 seconds, excluding
+startup and overrunning batches. Scaling and scheduling are offline-tested;
+live behavior still needs rehearsal. 24-vCore regional support with 0–8 limits
+has been verified read-only. Storage cards now measure actual used and allocated
+ROWS-file space, excluding transaction logs. Each storage card shows actual used
+and allocated GiB with a simple bar of used bytes divided by currently allocated
+bytes. Allocation grows automatically; it is not the database maximum or a demo
+fill target. There are no storage-history charts or numeric axes.
+With `PoolGrowth__Enabled=true`, **Run Scheduling & Grow** also inserts synthetic Caldova payloads up to an
+absolute ceiling of 21 GiB used and a 45-second
+growth limit. Northbrook and Ridgeview are only measured. Observation continues
+for 15 seconds after workload and
+growth finish. Stop cancels and joins
+inserts and refreshes measurements; committed batches remain. Intentional Stop
+is normal cancellation, including SqlClient's "Operation cancelled by user"
+error response, and does not show a false growth-failure alert. Unexpected
+failures still surface explicitly. The demo's growth time budget ends inserts
+normally, logs the stop, and refreshes actual committed space without replaying
+writes. If growth past 20 GiB has not been confirmed, a neutral status says so; it is not
+a successful growth confirmation. Failure to verify storage still surfaces.
+Initial seeding continues to require its full target. Final verification can
+add up to ten seconds before the observation cooldown. Growth finishes
+as soon as SQL confirms Caldova used space above 20 GiB and allocation above
+20 GiB, rather than continuing to chase 21 GiB after the allocation change.
+If storage already meets that goal, the button reads **Run Scheduling** and
+preserves existing storage. Subsequent Runs
+do not reset data or write above the ceiling. The 2026-10-31 rehearsal reached
+20.763 GiB used / 30 GiB allocated, but the old completion rule timed out while
+still targeting 21 GiB. The revised early-completion rule and actual near-24
+CPU peak still require live rehearsal; the allocation change itself is verified.
+Scale uses moderately larger cards in three columns from 900 pixels wide,
+retaining measured CPU values and storage bars; narrower windows stack the cards.
+Pool CPU reads have a 30-second timeout under contention, while workers retain
+their 15-second timeout and smaller batches. Failures identify CPU workload,
+CPU observation, or storage observation; CPU readings publish before storage
+inspection. No queries or writes are retried. The shorter scene remains a
+planned duration, not a verified growth-throughput or CPU-peak guarantee.
+For recording, pre-filling Caldova to 19.75 GiB used off camera is recommended
+to reduce the on-camera inserts; that separate synthetic-data write requires
+explicit approval and has not been performed. Initial seed targets remain 18/12/15.
+
+**Isolated storage-reset evidence (2026-10-31):** A temporary Hyperscale database
+in the existing 24-vCore pool completed two real allocation-growth/reset cycles.
+Filler increased used space to 10.006/10.022 GiB and allocation from 10 to 20 GiB.
+Truncating a separate growth table released pages within about five seconds;
+manual `DBCC SHRINKFILE` returned allocation to 10 GiB in about 31 seconds.
+Each complete reset, including baseline-row verification, took about 36 seconds
+and preserved all 32,768 baseline rows (about 0.256 GiB used after shrink).
+The temporary database was deleted and absence verified; the three demo
+databases remained Online in the unchanged pool. This proves the mechanism on
+a small baseline; the actual Caldova reset below is separate evidence.
+A separate recording-growth table remains unimplemented.
+
+**Grow recording reset:** Stop the local app and all dependent SQL workloads.
+Preview [12-reset-demo-storage.ps1](deploy/12-reset-demo-storage.ps1), then obtain
+explicit approval before applying:
+
+```powershell
+.\startandgrowhyperscale\deploy\12-reset-demo-storage.ps1 -ExpectedServerName sql-caldova-network-0efc44 -WhatIf
+```
+
+The reset truncates only `demo.StoragePayload`, waits for page deallocation,
+shrinks `data_0` toward 20 GiB allocated, then uses the existing bounded fill
+procedure to restore 18 GiB used. It does not delete or recreate the database,
+change appointments, or touch either server, other provider data, pool settings,
+or preview enablement. Replacing the whole dummy baseline is necessary with the
+current shared seed/growth table; this is not the faster separate-growth-table
+reset tested above. Failures leave the verified partial state in place, stop
+the operation, and require inspection rather than automatic replay.
+
+**Actual reset verified (2026-10-31):** Caldova returned from 20.763 GiB used /
+30 GiB allocated to 18.000 GiB used / 20 GiB allocated. The shrink phase took
+about 26 seconds; the complete reset, including refilling the baseline and
+verification, took about 4m12s. All 50 scheduling slots, zero appointments,
+three provider-directory rows, non-demo object definitions, provider placement,
+backup settings, and pool configuration were preserved.
+
+Set `PoolScaling__Enabled=true` only for the localhost demo launched with
+`ASPNETCORE_URLS=http://localhost:5099`; startup refuses public/wildcard bindings
+when live scaling or growth is enabled. Leave both flags disabled for App Service.
+Azure CLI must be installed and already signed in on the app host. The current
+CLI subscription must match the monitored database's subscription; it is never
+silently switched. Windows execution uses the installed CLI's Python entry
+point with individual process arguments, not a shell command string.
+Concurrent clicks across browser windows cannot submit duplicate operations.
+Failures are displayed explicitly; interruption or timeout can leave an Azure
+operation in progress and must be inspected before another attempt. No retries
+or automatic rollback are performed.
+
+### Initial Grow storage seeding
+
+Off camera, seed actual used-data targets of Caldova **18 GiB**, Northbrook
+**12 GiB**, and Ridgeview **15 GiB** before Step 4. This is Grow setup, not
+Part 1 Patient Access population. All three databases must be Online in the
+existing network pool. After approving these writes, run:
+
+```powershell
+.\startandgrowhyperscale\deploy\11-fill-demo-storage.ps1 -WhatIf
+.\startandgrowhyperscale\deploy\07-deploy-scheduling.ps1 -Phase Storage
+```
+
+For a complete Grow schema seed on already-pooled databases, `-Phase Schema
+-IncludeStorageFill` includes this same operation. The large fill stays opt-in;
+ordinary Schema seeding is unchanged. Stop the local app before building.
+The script uses the current Azure CLI identity/subscription and never switches.
+It creates `demo.StoragePayload`, `demo.StorageSize`, and `demo.FillStorageBatch`,
+with scoped grants to an existing app user. Up to 4096 uncompressed synthetic
+rows are committed per batch; initial fills have a two-hour limit and cancel
+sibling fills on failure. No scheduling rows are changed, and no data is
+deleted, truncated, or shrunk. Reruns measure and fill only remaining space.
+GiB means 1,073,741,824 bytes; allocated files can exceed the used-data target.
+An interrupted write may have committed: inspect measurements before rerunning,
+never replay blindly. CLI verification does not prove deployed-app SQL access.
+Pool CPU observers, workers, and storage operations share an in-memory SQL token and serialize refreshes within
+five minutes of expiry, avoiding repeated concurrent Azure CLI cache access.
+Authentication errors still stop the run explicitly; no retry, sign-in,
+credential-cache deletion, or unencrypted-cache fallback is performed.
+
+The initial live fill on `sql-caldova-network-0efc44` is verified: Caldova
+18.000, Northbrook 12.000, Ridgeview 15.000 GiB used, each with 20.000 GiB
+allocated. Files grew from 10 to 20 GiB allocated during the fill. This proves
+initial storage growth under the CLI identity, not Step 4 growth under CPU load
+or deployed-app identity access.
+After a rehearsal stopped on an Azure CLI decryption error, the shared pool-token
+change passed 301 offline checks and two actual app read-only inspections of all
+three databases. Caldova then measured 18.25 GiB used; Northbrook/Ridgeview remained
+12.00/15.00. The partial committed growth was preserved, not reset or replayed.
+This does not yet verify a complete workload/growth run.
+
+Offline checks mock CLI execution and ARM responses:
+
+```powershell
+dotnet run --project .\startandgrowhyperscale\tests\CaldovaNetworkScheduling.Checks.csproj --configuration Release
+```
+
+The runner itself can be tested against the logged-in account without mutation:
+
+```powershell
+dotnet run --project .\startandgrowhyperscale\tests\CaldovaNetworkScheduling.Checks.csproj --configuration Release -- --pool-cli-check
+```
+
 ### Published serverless illustration
 
 The updated package is published to the existing App Service. Launch
@@ -488,16 +740,79 @@ The UI keeps the serverless chapter separate from the SQL appointment workflow:
 | `IAppointmentAvailabilityService` | `SqlAppointmentAvailabilityService` | One source connection to `caldova-scheduling`; join-view reads and provider-specific conditional updates |
 
 `network.AppointmentAvailability` joins Caldova's central `network.ProviderClinic`
-directory to each provider's `dbo.AppointmentSlot` table by clinic ID and provider.
-`UNION ALL` combines those joined schedules. Only network members and unbooked
+directory to each provider's `dbo.AppointmentSlot` table using three `LEFT JOIN`s
+guarded by provider key and clinic ID, without a union. Only one schedule can
+match each directory row; `COALESCE` selects that schedule's appointment fields.
+Rows with no matching unbooked slot are excluded. Only network members and unbooked
 slots are exposed; searches filter to future UTC slots. The UI displays the same
 SQL view file embedded into the assembly, not a separately maintained example.
+
+After a confirmed booking, the selected row stays in the current search snapshot
+with a disabled **Booked** button. It is not automatically refreshed away.
+An explicit new search clears those row markers and reads current availability,
+which excludes booked slots. Lost booking races and uncertain write outcomes
+never receive a successful Booked marker; writes are not retried.
+
+For repeat takes, the localhost host can opt into `BookingReset__Enabled=true`.
+Each confirmed Booked row then offers **Reset booking** until the next search.
+Clicking it authorizes deletion of only the returned appointment ID and reopening
+of that same provider/slot in one transaction. Other bookings are preserved.
+The row returns to **Book slot** only after SQL confirms the reset. A stale
+receipt, SQL failure, or uncertain response produces an explicit error and no retry.
+Reset is disabled by default; enabling it requires explicit loopback URL bindings.
+It uses the configured SQL identity, which needs SELECT/DELETE on the provider's
+Appointment table and the existing slot permissions. No new grants are deployed;
+the local rehearsal uses the existing authorized development identity. Keep reset
+disabled on App Service. A fresh search or reload discards reset receipts; this
+is not a bulk reset for older bookings.
 
 Booking uses a fixed provider-to-database allowlist, parameterized slot/key values,
 and `UPDATE ... WHERE IsBooked = 0 ... OUTPUT inserted.SlotId`. It checks current
 network membership, writes only the owning provider's database, and uses no
 explicit transaction or automatic retry. Concurrent attempts cannot both book
 the same slot. A lost response is reported as unconfirmed, never success.
+
+## Scene 2 preparation and reset
+
+Use the existing demo skill with the copy-ready
+[preparation prompt](prompts/off-camera-prepare-resources.md) or
+[Scene 2 reset prompt](prompts/off-camera-reset-scene2.md).
+From the repository root, preview off-camera resource preparation:
+
+```powershell
+.\startandgrowhyperscale\deploy\00-prepare-part1.ps1 -WhatIf
+```
+
+After approval, repeat without `-WhatIf`. Creates missing resource group/Start
+logical server only; verifies compatible existing resources without changing them.
+No database or firewall rules are created. Scene 2 deployment handles those.
+New servers use the signed-in Entra user as administrator.
+
+For a fresh Scene 2 deployment, stop Start app/workload traffic and preview:
+
+```powershell
+.\startandgrowhyperscale\deploy\10-reset-part1.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf
+```
+
+After explicit approval, repeat without `-WhatIf` and with `-Confirm:$false`.
+This deletes only the Start `caldova-scheduling` database and verifies absence.
+All its schema and data are deleted; redeploy in Scene 2, then use the
+[off-camera population prompt](prompts/off-camera-populate-database.md).
+Both servers, resource group, pool, and all Grow databases remain unchanged.
+This is not `06-set-pool-membership.ps1 -Mode Standalone`, which changes provider
+compute without deleting databases. Both logical servers and their server-level
+cross-database preview settings must always be preserved. Full resource-group
+teardown via `99-remove.ps1` is disabled. A newly created server does not inherit
+preview enablement; confirm the target if a server appears absent.
+
+These scripts pin every Azure CLI call to the configured subscription and run
+synchronously. Environment overrides come from `deploy\00-config.ps1`; reset also
+requires the explicit expected server and restricts it to `sql-caldova-start-*`.
+Mocked lifecycle tests (no Azure changes), from the repository root:
+
+```powershell
+.\startandgrowhyperscale\deploy\tests\part1-lifecycle.tests.ps1
+```
 
 ## SQL setup
 
@@ -506,6 +821,36 @@ For scripted deployment using the current Azure CLI user's credentials, use
 the pool, then `-Phase Network` and `-Phase Verify`. This requires PowerShell's
 `SqlServer` module and obtains a fresh SQL access token in memory. The Verify
 phase checks the deployment identity, not the app identity.
+The Network phase reads the expected app login SID from `sys.server_principals`
+in `master`, validates it, and supplies the `AppLoginSid` SQLCMD variable to each
+permissions file. Azure SQL does not support `SUSER_SID(login)` in user databases.
+Missing login metadata stops setup before the view changes; mismatched existing
+users remain explicit failures rather than being silently remapped.
+The Entra login SID must be 16 bytes. Azure SQL login-based database users have
+an 18-byte SID ending in `AADE`; the permissions guard requires the expected
+login SID plus that suffix and an external principal type. A contained user
+with only the 16-byte identity SID is not a valid login mapping.
+See [Microsoft Entra server principals](https://learn.microsoft.com/azure/azure-sql/database/authentication-azure-ad-logins).
+Validate this wiring without Azure or SQL changes with
+`deploy\tests\scheduling-network.tests.ps1` (16 mocked checks). Six read-only SQL
+fixtures verified valid external-user/group mappings and rejection of contained
+users, wrong identities, wrong suffixes, and wrong principal types.
+The pool cap policy is defined in `deploy\00-config.ps1`: minimum zero and
+maximum `min(pool vCores, 12)`. New pool deployment supplies explicit CLI caps
+and verifies them; existing mismatches stop for a separately approved change,
+never recreation. Validate creation/reuse safeguards without Azure or SQL with
+`deploy\tests\pool-deployment.tests.ps1` (7 mocked checks). On 2026-11-01, the
+approved existing-pool update was applied and independently verified: Ready,
+24 total vCores, minimum zero and maximum twelve per database. No workload,
+booking, schema/permission setup, pool membership, or server changes were performed.
+For read-only SQL validation, run `deploy\tests\network-view-read.tests.ps1`.
+It executes the canonical JOIN-only SELECT over inline edge-case fixtures and
+compares all eight output columns against the previous view semantics using
+native live table reads. It verifies colliding IDs, multiple clinics, empty
+schedules, membership/booked exclusions, and unchanged past-slot semantics.
+It requires the current CLI subscription and all three databases Online in the
+existing pool; it does not deploy the view or change users, grants, data, or bookings.
+These SQL checks use the deployment identity, not the application's identity.
 `deploy\08-configure-app-sql.ps1` configures the app's managed-identity connection
 and exact current app-egress firewall rules. The separately requested **Allow
 Azure services** setting is enabled in Azure; this script does not remove it.
@@ -522,6 +867,9 @@ connections to the specified databases (no `USE` statements):
 5. `sql\03-app-permissions.sql` separately in all three: users **from the login**,
    `SELECT`/`UPDATE` on appointment tables, plus directory/view reads in Caldova.
    Existing mismatched users cause an explicit error; never silently replace them.
+   Enable SQLCMD mode and supply `AppLoginSid` from the app login's `sid` in
+   `master.sys.server_principals`; the Network deployment phase supplies it
+   automatically. Do not substitute a user-database SID or show the value on camera.
 6. Verify `sql\04-verify-read.sql` from Caldova using the application identity.
    Then use app steps 3 and 4 to verify actual reads and booking.
 
@@ -577,10 +925,10 @@ Remaining work and presentation options.
 | 1 | **Rehearse Copilot-assisted sizing/deployment** | The Start and Grow skill defines requirements, recommendation, change summary, and approval. Verify supported sizing and exact deployment scope; the current SQL provisioner creates all databases and a pool, not just Caldova. |
 | 2 | **Enable auto-pause live in the Azure portal** | Show auto-pause being turned on in the portal instead of setting it at create time. `04-deploy-sql.ps1` currently creates `caldova-scheduling` with `--auto-pause-delay 60`; change it to create with auto-pause off when this lands. Hyperscale auto-pause is preview with a 60-minute minimum delay. |
 | 3 | **Live serverless verification** | Measured source path implemented; approve monitoring permissions/load and prove actual rise/fall, sample delay, and agreement with Azure Monitor before publishing/presenting. |
-| 4 | **Live native cross-database verification** | **Blocked (2026-10-24).** Schema is deployed in all three databases (Ridgeview was missing it). With all three Online in `caldova-network-pool`, three-part names fail with Msg 40515 and `SUSER_SID('<name>')` fails with Msg 40507 in user databases, so the preview is not active for this server/pool. Ask the preview team to enable or re-check `sql-caldova-network-0efc44` / `caldova-network-pool`, then run `07-deploy-scheduling.ps1 -Phase Network` and `-Phase Verify` while pooled. Databases were returned to standalone. |
+| 4 | **Live native cross-database verification** | **Local search and booking verified (2026-11-01).** The JOIN-only view, provider booking tables, mapped app users, and effective grants are verified. Local app network searches returned ten Cardiology rows (Ridgeview/Caldova) and ten Pediatrics rows (Northbrook/Caldova). An approved Ridgeview slot-8 booking succeeded; SQL confirmed one booked slot/appointment only in Ridgeview and no availability for that slot. A subsequent approved targeted transaction deleted only that rehearsal appointment and reopened slot 8. Follow-up reads confirmed slot 8 remained unbooked, with newer slot-9/10 bookings preserved. The revised UI retains confirmed rows as disabled **Booked** buttons until a fresh search; eight offline checks verify that behavior, provider-scoped markers, repeat-click/in-flight safety, lost races, reset searches, and uncertain outcomes (384 total checks). No additional agent-initiated booking was performed for this UI revision. Deployed managed-identity access remains unverified. The SID guard passed 16 mocked checks and six read-only SQL fixtures. |
 | 5 | **Independent Start/Grow chapters** | Part 1 now ends independently; chapter entry/navigation grouping remains to implement, preserving routes and telemetry/SQL disclosures. |
 | 6 | **Pool scaling under workload** | Implement an approved capacity change on the existing pool, bounded workload, and measured transition/workload behavior. Connection retry handling is a talking point only; no new retry logic, instrumentation, or tests. Preserve existing booking behavior. |
-| 7 | **Measured database growth** | Add bounded approved synthetic inserts and measured data-space-used growth within the workload flow, with fixed compute and scoped cleanup. No separate storage/I/O checkpoint page. Not yet implemented. |
+| 7 | **Measured database growth** | Implemented and offline-tested. Initial live 18/12/15-GiB used-data fill verified; all three allocate 20 GiB. Storage cards measure used/allocated space; opt-in Step 4 grows Caldova to 21 GiB. Crossing 20 GiB under CPU load still needs live rehearsal. No automatic cleanup or data reset. |
 
 ## Move into the pool / reset to standalone
 
@@ -734,8 +1082,9 @@ Step 1 observation history is held in memory per browser circuit. Pool state liv
 and bookings live in SQL and survive app restarts. Next/Back navigation does not
 mark pool membership as complete.
 
-## Remove
+## Server preservation
 
-```powershell
-./deploy/99-remove.ps1   # deletes caldova-network-rg after confirmation
-```
+Never delete the logical servers or their shared resource group: server-level
+cross-database preview enablement must be retained. `deploy\99-remove.ps1`
+fails without contacting Azure. For an approved database-only reset, follow
+[Scene 2 preparation and reset](#scene-2-preparation-and-reset).

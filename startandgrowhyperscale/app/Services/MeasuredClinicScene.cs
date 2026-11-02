@@ -103,7 +103,7 @@ public sealed class MeasuredClinicScene
         if (roll < 0.6) { kind = "Booked"; booked++; when = ClinicCast.FutureSlot(random); }
         else if (roll < 0.85) { kind = "Checked in"; checkedIn++; when = $"Today {at:h:mm tt}"; }
         else { kind = "Rescheduled"; rescheduled++; when = ClinicCast.FutureSlot(random); }
-        activity.Add(new AppActivity(++sequence, at, user.Id, kind, patient, service.Specialty, service.Clinic, when));
+        activity.Add(new AppActivity(++sequence, at, user.Id, kind, patient, service.Specialty, service.Clinic, when, now));
         if (activity.Count > 100) activity.RemoveRange(0, activity.Count - 100);
     }
 }

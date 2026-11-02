@@ -45,6 +45,8 @@ Invoke-Az @('sql', 'elastic-pool', 'list', '--resource-group', $ResourceGroup, '
             Pool          = $_.name
             Edition       = $_.edition
             VCores        = $_.sku.capacity
+            MinPerDatabase = $_.perDatabaseSettings.minCapacity
+            MaxPerDatabase = $_.perDatabaseSettings.maxCapacity
             State         = $_.state
             ZoneRedundant = $_.zoneRedundant
             Databases     = @($databases | Where-Object elasticPoolName -eq $_.name).Count

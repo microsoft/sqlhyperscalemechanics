@@ -18,8 +18,8 @@ controls have already been implemented.
 | Independent chapter navigation | Not yet implemented; existing routes are mapped below. |
 | Serverless Patient Access | Published illustration passed the Edge 1 -> 4 -> 1 -> pause -> resume cycle. Current app uses SQL DMV CPU samples and a staged 0 -> 8 -> 0 worker ramp; published 2026-10-23 with load generation disabled. Harness ramp measured 0 -> 6.94 -> 0 vCores with no failures (6-7 accepted); app-page ramp not yet run live. Actual billing/pause/resume history is captured; portal rehearsal and deployed SQL identity verification remain. SQL load generation is disabled. |
 | Pool membership | Canonical script/skill implemented; verify current live state before each run. |
-| Pool scale under workload | Not yet implemented or measured. Requires an approved target, bounded workload, and before/during/after evidence. Retry handling is a talking point only, not an implementation or verification gate. |
-| Database growth | Not yet implemented. Add bounded approved synthetic inserts and measured data-space-used growth in the workload flow, not a separate storage/I/O checkpoint page. |
+| Pool scale under workload | Local 24/8 controls and bounded three-clinic workload/CPU telemetry implemented and offline-tested. Faster differing worker ramps target near 24 used cores; the actual peak and scale-under-load behavior still require live rehearsal. Retry handling is a talking point only. |
+| Database growth | Real measurements and bounded inserts are implemented and offline-tested. Initial live fill verified at 18/12/15 GiB used, each with 20 GiB allocated. Step 4 grows Caldova to 21 GiB; crossing 20 GiB under CPU load still needs live rehearsal. |
 | Native cross-database search/booking | Source implemented; live deployment/app-identity verification remains unproven by this document. |
 
 Measured historical evidence is in [README.md](README.md). It is not
@@ -71,11 +71,26 @@ configuration, and deploy it with scripts and the Azure CLI."
 [skill](../.github/skills/start-and-grow-hyperscale-demo/SKILL.md).
 Use this prompt:
 
-> Help me size and deploy a Hyperscale database for Caldova Patient Access.
-> Ask me for the missing requirements, recommend a configuration, and show me
-> a change summary. Don't deploy until I approve the exact plan.
+> Help me deploy a database for Caldova Patient Access. Usage peaks in the
+> morning, with nights and weekends idle. We need automatic compute scaling,
+> low idle cost, and room to grow without sizing storage. A short wake-up
+> delay is fine. Use the currently logged-in Azure user and subscription,
+> resource group `caldova-network-rg`, and existing server
+> `sql-caldova-start-0efc44`.
+> Recommend a configuration, state assumptions, and show the plan for approval
+> before deploying.
 
-Answer Copilot's questions with these requirements (say them in your own words):
+This is Scene 2. Show the skill's "Scene 2 - Requirements-led deployment"
+section so the audience can connect the short prompt to its workflow. Hyperscale
+serverless is the recommendation, not an instruction in the prompt.
+Copilot uses the current Azure CLI user/subscription and checks the named
+resources for existence and compatibility. No questionnaires or numerical
+estimates are required: show missing details as pilot assumptions in the plan
+and wait for approval. Do not silently switch subscriptions or recreate servers.
+If the database already exists, verification is not a fresh deployment;
+deletion/recreation requires separate approval.
+
+The supplied requirements and proposed pilot assumptions are:
 
 | Topic | Requirement to say |
 |---|---|
@@ -106,21 +121,63 @@ Copilot then shows the change summary by running:
 .\startandgrowhyperscale\deploy\09-deploy-part1-sql.ps1 -WhatIf
 ```
 
-After you approve, it runs the same command without `-WhatIf` (add `-ClientIp <presenter-ip>`
-and, on an Azure-hosted presenting machine, `-AllowAzureServices`). It creates
-`sql-caldova-start-0efc44` and `caldova-scheduling`, then verifies the result.
+For this demo include `-AllowAzureServices` in both preview and apply, without
+`-ClientIp`; no presenter-IP lookup or rule is needed. Retain the setting if
+already enabled and leave existing rules untouched.
+After you approve, it runs the same command without `-WhatIf`. It reuses
+the confirmed resource group/server and creates `caldova-scheduling`, then
+verifies the result. Creating a missing server requires explicit approval;
+the resource group must already exist for this script.
 Creation takes a few minutes; time-lapse with disclosure.
+
+For off-camera preparation of missing resources, use the
+[preparation prompt](prompts/off-camera-prepare-resources.md) and
+`deploy\00-prepare-part1.ps1` (preview, approval, then apply). This creates the
+resource group and Start server only. For a fresh Scene 2 deployment, use the
+[database-only reset prompt](prompts/off-camera-reset-scene2.md) and
+`deploy\10-reset-part1.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf`.
+Deletion requires separate approval before applying without `-WhatIf` and with
+`-Confirm:$false`. No Grow databases, servers, pool, or resource group are deleted.
 
 **Prove:** The verified result matches the approved plan (`HS_S_Gen5_8`, min 1,
 auto-pause 60). Do not claim the 1-8 range came from measurement; it is a
 starting point that Beat 1.3 then observes. Verify that the intended GitHub
 branch contains the skill before showing its repository URL on camera.
 
+### Scene 3 - Verify the deployed database in Azure Portal
+
+**Say:** "Here is the database Copilot deployed from those requirements."
+
+**Do:** Open the exact server/database verified in Scene 2. Show its name,
+Hyperscale service tier, serverless compute, 1-8 vCore range, and 60-minute
+auto-pause configuration. Do not change settings or open the SQL query editor.
+
+**Prove:** Portal configuration agrees with the approved deployment plan.
+Continue to Patient Access only after this check.
+
+**Off camera, before Scene 4:** In the same deployment chat, prompt:
+
+> Populate the database we just deployed with the demo schema and data.
+> This is off camera.
+
+Follow the skill's "Off-camera - Populate the deployed database" workflow:
+confirm the exact Scene 2 target, preview and approve the single-database
+schema/seed operation, then verify tables and counts. Use the existing
+`sql\01-scheduling-schema.sql` only on that database, not the multi-provider
+deployment script. Disconnect afterward. This setup can resume compute and
+restart the idle period; it does not prepare or move the Grow databases.
+
 ### Beat 1.3 - Caldova Patient Access (current app Step 1, `/`)
 
 **Presenter decision (2026-10-22): two complementary visuals.**
-The app uses a **staged ramp** (presenter decision 2026-10-23): 0 -> 8 -> 0
-workers, one per 30 seconds with a 60-second hold, 8 minutes total; a
+The app now uses a **four-and-a-half-minute planned sequence** (2026-10-29):
+the first worker starts as soon as the database connection is ready, without
+an idle baseline. Staff ramp to 8 and back to 0 with 10-second steps and a
+55-second peak hold, then 75-second cooldown. **Stop** cancels the workload
+and SQL observation immediately instead of waiting through cooldown; it keeps
+existing samples and returns the controls to idle.
+Workload duration is 195 seconds; startup/connection
+time can add to elapsed time. The shorter timing requires a new live rehearsal; a
 **6-7 CPU-used vCore** peak is acceptable. Current source measures
 approximately 15-second `sys.dm_db_resource_stats` interval averages using
 `avg_cpu_percent * cpu_limit / 100`, not Azure Monitor CPU data.
@@ -269,17 +326,44 @@ In the Azure portal, open the pool directly:
 4. Confirm all three scheduling databases are pooled and online.
 5. Inspect actual pool capacity; no app-generated metrics are shown.
 
-Then press **Check network** in the app. From Caldova it runs the native join
-view using the configured application identity and shows each database's open
-slots and the query. It does not prove booking permissions. Failures are displayed
-and logged; do not continue as if SQL passed.
+The Network app page shows verified membership and shared capacity without a
+SQL access check. Search & Book demonstrates native cross-database reads and
+booking separately on Step 5. Step 4, Scale (`/scale`), offers **Scale Pool to 24** and **Scale Pool
+to 8**: each click authorizes the real server-side CLI update without another
+confirmation. Both buttons disable while scaling, and verified capacity refreshes
+automatically. Scaling keeps minimum zero and sets maximum per database to
+12 at 24 pool vCores, or 8 at 8 pool vCores. Include both capacity and cap in the
+approved operation; verify both. Eight is not an inherent per-database limit.
+Live controls are localhost-only, opt-in, and disabled on public deployments.
+
+When the local recording opt-in is enabled, Network (`/verify`) instead shares
+the Scale illustration's selected capacity and per-database limits across
+in-app navigation, without on-screen playback/illustration notices or a
+live-inspection link. Use `/verify-live` directly for real Azure inspection.
+Keep narration and evidence accurate: modeled readings are not live telemetry.
+Neither recording page changes Azure. A full browser
+reload creates a fresh recording circuit; with recording disabled, Network
+retains its real ARM inspection behavior.
 
 Present the scaling and database-growth beats before moving to Search & Book.
 
 ### Beat 2.3 - Scale the pool while watching workload
 
-**Gate:** This beat is not implemented yet. Build and verify the scale operation
-and workload observation before presenting it live. Retry handling is a talking
+**Gate:** Local scale controls and bounded three-database scheduling/CPU observation
+are implemented and offline-tested. Rehearse actual scale-under-load behavior
+before presenting it live. Run Scheduling drives bounded worker ramps on
+each clinic and displays measured CPU, not equal allocations. Stronger batches
+and two immediate workers per clinic ramp in groups of two to nine workers within twenty seconds to target
+near 24 used cores. This requires all three databases to approach eight cores;
+do not promise different usage at every instant. The low start makes room for a
+more gradual measured rise; keep the actual 15-second averages without invented
+intermediate values. Nine workers target eight CPU-used cores; counts are not
+cores and do not change provisioned capacity. Each profile holds fifteen
+seconds, stops three workers per five-second step, and ends at forty-five,
+followed by fifteen seconds of observation. Rehearse the revised curve before
+claiming its shape or peak. Moderately larger cards show
+latest measured CPU values and simple used/allocated storage bars, without
+CPU charts. Storage growth is measured from SQL data files. Retry handling is a talking
 point only; do not build retry logic, instrumentation, or tests for this demo.
 
 **Say:** "The service prepares the new compute and switches over when it's ready.
@@ -302,34 +386,84 @@ is unknown.
 
 ### Beat 2.4 - Show the database growing in the workload flow
 
-**Gate:** The current serverless read-only workload does not grow data. This
-separate bounded insert/space-measurement path is not yet implemented.
+**Gate:** Complete approved initial Grow storage seeding with
+`deploy\07-deploy-scheduling.ps1 -Phase Storage`: Caldova 18, Northbrook 12,
+Ridgeview 15 GiB used. Enable `PoolGrowth__Enabled=true` only on the localhost
+demo after verifying SQL access. Offline checks pass; rehearse actual inserts
+and timing before presenting the growth beat live.
 
 **Say:** "We don't size database storage by choosing a core count. Hyperscale
 handles storage growth separately; there's no storage tier to resize here."
 
-**Do:** Within the workload screen, run approved bounded synthetic inserts while
-holding compute fixed. Show measured database data space used increasing.
-No separate storage/I/O checkpoint page is needed.
+**Do:** On Scale, click **Run Scheduling & Grow**. It authorizes bounded synthetic
+inserts on the real `/scale` page only. For the explicitly chosen bounded
+recording illustration, use `/scale-presentation` with the local presentation
+opt-in; its Scale and Run controls change only the in-memory model. There is
+no on-screen speed-up caption. Do not describe its values as live SQL telemetry.
+The illustration stops as soon as the prominent 20-to-30-GiB allocation
+callout appears, normally around sixteen seconds, within the thirty-second
+maximum. Scale controls work during activity without restarting the clock;
+the 24-vCore model uses per-database minimum zero and maximum twelve, displayed
+separately from CPU-used values. Demand starts at two each, then varies by
+provider and finishes at twelve/seven/five. The eight-core model caps each
+database at eight and shares the eight-core total. Final CPU and expanded-storage readings remain
+visible; another Run resets only the in-memory baseline.
+Keep real proof separate in `deploy\13-rehearse-pool-growth.ps1 -IncludeGrowth`,
+preview and approve that operation, and verify its actual UTC samples and
+20-to-30-GiB allocation change. It never books, resets, or changes compute.
+
+**Real verification:** **Run Scheduling & Grow** authorizes bounded synthetic
+inserts into Caldova only, capped at 21 GiB used, while scheduling runs across all
+three databases. Growth finishes once SQL confirms used and allocated space
+above 20 GiB. Show Caldova crossing 20 GiB and actual file allocation
+increasing; a prominent before/after allocation callout and brief Caldova card
+highlight appear only when actual allocation increases during the run.
+Northbrook/Ridgeview retain their staggered seeded sizes. Stop
+cancels and joins activity and refreshes space measurements.
 
 **Prove:** Scaling compute does not require a matching manual database-storage
 resize. Do not imply unlimited I/O, that all I/O limits are independent of
-compute, or that storage grew during the demo without measured evidence. Agree the
-volume/cost and scoped cleanup beforehand. No fake storage-growth gauge.
+compute. Used and allocated sizes are distinct GiB measurements, excluding logs.
+Committed data remains on Stop; another Run does not reset it or exceed the
+21-GiB ceiling. Already-grown storage changes the button to **Run Scheduling**
+and is preserved; another allocation-change take requires an approved off-camera
+reset. Grouped scheduling lasts up to 45 seconds with 15 seconds of
+observation: a 60-second plan, excluding startup and overrunning SQL.
+The Grow-only off-camera reset is `deploy\12-reset-demo-storage.ps1` with an
+explicit expected network-server name. Preview with `-WhatIf`, approve its
+dummy-table truncation/shrink/refill scope, and stop app/workload traffic before
+applying. Actual 18-GiB used / 20-GiB allocated restoration is verified; it took
+about 4m12s because the current shared payload baseline is rebuilt.
+Growth is also capped at 45 seconds; its throughput is not guaranteed.
+Reaching that budget stops inserts normally and refreshes actual storage;
+there is no red limit-reached alert. A neutral status reports growth past
+20 GiB that has not been confirmed. Verification can add up to ten
+seconds; genuine SQL or verification failures remain explicit.
+An explicitly approved off-camera pre-fill to 19.75 GiB used is recommended
+for the recording but has not been performed. Do not call the
+beat complete until the actual increase is seen.
 
-### Beat 2.5 - Search the network, book at the provider (current app Step 4, `/appointments`)
+### Beat 2.5 - Search the network, book at the provider (current app Step 5, `/appointments`)
 
 1. Search Cardiology with **Search the entire network** unchecked.
 2. Check the box and search again. Compare the returned lead time to Caldova only.
    Dates/counts are actual seeded SQL results, not fixed claims.
 3. Expand **Behind the view**. Caldova's central provider/clinic directory joins
-   to local and native three-part-name remote appointment tables. `UNION ALL`
-   combines the joined provider results.
+   to local and native three-part-name remote appointment tables using three
+   provider-keyed `LEFT JOIN`s, without a union. Clinic and slot IDs are local
+   to each provider; the provider-key guards keep schedules from multiplying
+   or mixing. `COALESCE` selects the matching schedule's fields.
 4. Book a Ridgeview slot. The displayed SQL runs one transaction from the Caldova
    connection: it updates the slot and inserts an appointment row, both in
    `[ridgeview-scheduling]`, a cross-database `INSERT` with one write database.
-5. The slot disappears from open availability. Repeat the same slot from a
-   second browser session to demonstrate that only the first booking can succeed.
+5. The selected row stays visible with a disabled **Booked** button. A fresh
+   search excludes it from open availability. A second session holding the old
+   result can demonstrate that only the first booking succeeds; a lost race
+   must not display a successful Booked marker.
+   For another take on the opted-in localhost host, click **Reset booking**
+   beside that Booked row before starting a new search. This deletes only that
+   exact rehearsal appointment and reopens its slot; the button returns to
+   **Book slot** after SQL confirms it. No bulk reset or automatic write retry.
 6. Switch to Pediatrics to show Northbrook's schedule.
 
 All displayed times are UTC. Booking records availability only; there is no

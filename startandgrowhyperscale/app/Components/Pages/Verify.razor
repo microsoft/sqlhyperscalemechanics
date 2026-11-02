@@ -1,68 +1,39 @@
 @page "/verify"
-@using CaldovaNetworkScheduling.Models
-@inject IAppointmentAvailabilityService Availability
+@inject NetworkResourceMonitor Resources
 @inject ILogger<Verify> Logger
+@inject PoolPresentation Presentation
 
 <PageTitle>Step 3 · Caldova scheduling network</PageTitle>
-<section class="page-header heading-row">
-    <div>
-        <p class="eyebrow">Step 3 · One pool, one network · caldova-network-pool</p>
-        <h1>Caldova scheduling network</h1>
-        <p>Three provider databases share one Hyperscale elastic pool. From its own database, Caldova reads the
-            other two by their three-part names.</p>
-    </div>
-    <div class="transport">
-        <button class="btn btn-primary" disabled="@busy" @onclick="CheckAsync">@(busy ? "Checking..." : "↻ Check network")</button>
-    </div>
+<section class="page-header network-header">
+    <p class="eyebrow">Step 3 · One pool, one network · caldova-network-pool</p>
+    <h1>Caldova scheduling network</h1>
+    <p>Three provider databases share compute in one Hyperscale elastic pool.</p>
 </section>
-@if (error is not null) { <p class="callout callout-error" role="alert">@error</p> }
-<div class="provider-grid">
-    @foreach (var (key, name, role) in providers)
-    {
-        var reach = check?.Providers.FirstOrDefault(p => p.ProviderKey == key);
-        <article class="provider-card">
-            <header><span class="provider-tag">@role</span><h2>@name</h2></header>
-            <dl>
-                <div><dt>Database</dt><dd><code>@SqlAppointmentAvailabilityService.GetDatabase(key)</code></dd></div>
-                <div><dt>Elastic pool</dt><dd><code>caldova-network-pool</code></dd></div>
-                <div><dt>Read from Caldova as</dt><dd><code>@(key == "caldova" ? "dbo.AppointmentSlot (local)" : SqlAppointmentAvailabilityService.GetSourceObject(key))</code></dd></div>
-                <div><dt>Open slots</dt><dd><strong>@(reach?.OpenSlots.ToString() ?? (busy ? "…" : "–"))</strong></dd></div>
-                <div><dt>Status</dt><dd>@(reach is not null ? "✓ Reachable" : busy ? "Checking…" : "–")</dd></div>
-            </dl>
-        </article>
-    }
-</div>
-@if (check is not null)
-{
-    <section class="panel">
-        <h2>What the app runs</h2>
-        <pre class="code">@check.QueryText</pre>
-        <p class="footnote">One connection to <code>@check.SourceDatabase</code>; the view joins the other databases in the pool.
-            Checked @check.CheckedAt.UtcDateTime.ToString("HH:mm:ss") UTC.</p>
-    </section>
-}
-@code {
-    private bool busy;
-    private NetworkCheck? check;
-    private string? error;
-    private readonly (string Key, string Name, string Role)[] providers =
-    [
-        ("caldova", "Caldova Health", "Acquirer"),
-        ("northbrook", "Northbrook Family Clinics", "Acquired · primary care and pediatrics"),
-        ("ridgeview", "Ridgeview Specialty Care", "Acquired · cardiology and orthopedics"),
-    ];
+@if (resourceError is not null) { <p class="callout callout-error" role="alert">@resourceError</p> }
+<NetworkPoolCards Resources="resources" Loading="resourceBusy" />
 
-    private async Task CheckAsync()
+@code {
+    [Parameter] public bool Live { get; set; }
+    private bool ShowingPresentation => Presentation.Enabled && !Live;
+    private bool resourceBusy;
+    private string? resourceError;
+    private NetworkResources? resources;
+    protected override async Task OnInitializedAsync()
     {
-        busy = true;
-        error = null;
-        try { check = await Availability.CheckNetworkAsync(); }
-        catch (Exception ex) when (ex is Microsoft.Data.SqlClient.SqlException or InvalidOperationException)
+        if (ShowingPresentation)
         {
-            Logger.LogError(ex, "Caldova cross-database network check failed");
-            check = null;
-            error = "The network check failed. See server logs for details.";
+            resources = Presentation.Snapshot.Resources;
+            return;
         }
-        finally { busy = false; }
+        resourceBusy = true;
+        try { resources = await Resources.ReadAsync(CancellationToken.None); }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException
+            or System.Text.Json.JsonException or KeyNotFoundException or FormatException or TaskCanceledException
+            or Azure.Identity.AuthenticationFailedException or Azure.Identity.CredentialUnavailableException)
+        {
+            Logger.LogError(ex, "Caldova network resource inspection failed");
+            resourceError = "Resource details could not be verified. Check Azure resource-read access and the configured target. See server logs for details.";
+        }
+        finally { resourceBusy = false; }
     }
 }

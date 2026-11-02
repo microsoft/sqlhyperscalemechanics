@@ -4,8 +4,10 @@ using Microsoft.Data.SqlClient;
 
 namespace CaldovaNetworkScheduling.Services;
 
-public sealed class SqlAppointmentAvailabilityService(IConfiguration configuration) : IAppointmentAvailabilityService
+public sealed class SqlAppointmentAvailabilityService(IConfiguration configuration) : IAppointmentAvailabilityService, IAppointmentBookingResetService
 {
+    public bool ResetEnabled => configuration.GetValue<bool>("BookingReset:Enabled")
+        && !configuration.GetValue<bool>("Demo:Playback");
     public const string LocalQuery = """
         SELECT TOP (10) p.ProviderKey, p.ProviderName, s.SlotId,
                p.Location, s.Clinician, s.Specialty, s.SlotStart, s.DurationMinutes
@@ -54,6 +56,7 @@ public sealed class SqlAppointmentAvailabilityService(IConfiguration configurati
         return $"""
             SET XACT_ABORT ON;
             DECLARE @booked int = 0;
+            DECLARE @appointmentId bigint;
             BEGIN TRANSACTION;  -- every write goes to [{database}]
 
             UPDATE s
@@ -71,11 +74,12 @@ public sealed class SqlAppointmentAvailabilityService(IConfiguration configurati
             BEGIN
                 INSERT [{database}].dbo.Appointment (SlotId, BookedAtUtc, BookedVia)
                 VALUES (@SlotId, SYSUTCDATETIME(), N'caldova-network');
+                SET @appointmentId = CONVERT(bigint, SCOPE_IDENTITY());
                 SET @booked = 1;
             END;
 
             COMMIT TRANSACTION;
-            SELECT @booked AS Booked;
+            SELECT @booked AS Booked, @appointmentId AS AppointmentId;
             """;
     }
 
@@ -131,8 +135,61 @@ public sealed class SqlAppointmentAvailabilityService(IConfiguration configurati
         using var command = new SqlCommand(query, connection) { CommandTimeout = 30 };
         command.Parameters.Add("@SlotId", SqlDbType.BigInt).Value = slotId;
         command.Parameters.Add("@ProviderKey", SqlDbType.NVarChar, 20).Value = providerKey;
-        var value = await command.ExecuteScalarAsync(cancellationToken);
-        return new BookingResult(value is int booked && booked == 1, query);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            throw new InvalidOperationException("SQL did not return a booking response. Inspect the slot before retrying.");
+        var booked = reader.GetInt32(0) == 1;
+        var appointmentId = reader.IsDBNull(1) ? (long?)null : reader.GetInt64(1);
+        if (booked && appointmentId is not > 0)
+            throw new InvalidOperationException("SQL did not return the confirmed appointment ID. Inspect the slot before retrying.");
+        return new BookingResult(booked, query, appointmentId);
+    }
+
+    public static string GetResetQuery(string providerKey)
+    {
+        var database = GetDatabase(providerKey);
+        return $"""
+            SET XACT_ABORT ON;
+            BEGIN TRANSACTION;
+
+            UPDATE s WITH (UPDLOCK, HOLDLOCK)
+            SET IsBooked = 0
+            FROM {GetSourceObject(providerKey)} AS s
+            WHERE s.SlotId = @SlotId AND s.IsBooked = 1
+              AND EXISTS (
+                  SELECT 1 FROM [{database}].dbo.Appointment AS a
+                  WHERE a.AppointmentId = @AppointmentId AND a.SlotId = s.SlotId
+                    AND a.BookedVia = N'caldova-network'
+              );
+            IF @@ROWCOUNT <> 1
+                THROW 50003, 'The exact booking no longer matches. No reset was performed.', 1;
+
+            DELETE FROM [{database}].dbo.Appointment
+            WHERE AppointmentId = @AppointmentId AND SlotId = @SlotId
+              AND BookedVia = N'caldova-network';
+            IF @@ROWCOUNT <> 1
+                THROW 50004, 'The appointment changed. The reset was rolled back.', 1;
+
+            COMMIT TRANSACTION;
+            SELECT 1;
+            """;
+    }
+
+    public async Task ResetAsync(string providerKey, long slotId, long appointmentId, CancellationToken cancellationToken = default)
+    {
+        if (!ResetEnabled) throw new InvalidOperationException("Booking reset is disabled on this host.");
+        PoolScaler.ValidateHost(configuration);
+        if (slotId <= 0) throw new ArgumentOutOfRangeException(nameof(slotId));
+        if (appointmentId <= 0) throw new ArgumentOutOfRangeException(nameof(appointmentId));
+        var query = GetResetQuery(providerKey);
+        await using var connection = CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+        using var command = new SqlCommand(query, connection) { CommandTimeout = 30 };
+        command.Parameters.Add("@SlotId", SqlDbType.BigInt).Value = slotId;
+        command.Parameters.Add("@AppointmentId", SqlDbType.BigInt).Value = appointmentId;
+        var response = await command.ExecuteScalarAsync(cancellationToken);
+        if (response is not int value || value != 1)
+            throw new InvalidOperationException("SQL did not confirm the booking reset. Inspect the slot before retrying.");
     }
 
     public const string NetworkCheckQuery = """

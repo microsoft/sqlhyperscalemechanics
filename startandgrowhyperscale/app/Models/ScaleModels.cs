@@ -21,7 +21,8 @@ public sealed record AppActivity(
     string Patient,
     string Specialty,
     string Clinic,
-    string When);
+    string When,
+    DateTimeOffset? RecordedAt = null);
 
 public sealed record ScaleSnapshot(
     bool IsRunning,

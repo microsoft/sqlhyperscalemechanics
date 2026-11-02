@@ -13,11 +13,12 @@
             <NavLink href="/" Match="NavLinkMatch.All" class="nav-item"><span class="nav-step">1</span>Patient Access</NavLink>
             <NavLink href="/network" class="nav-item"><span class="nav-step">2</span>Acquisitions</NavLink>
             <NavLink href="/verify" class="nav-item"><span class="nav-step">3</span>Network</NavLink>
+            <NavLink href="@(Configuration.GetValue<bool>("PoolPresentation:Enabled") ? "/scale-presentation" : "/scale")" class="nav-item"><span class="nav-step">4</span>Scale</NavLink>
             @if (Configuration.GetValue<bool>("Demo:Playback"))
             {
                 <NavLink href="/pool" class="nav-item"><span class="nav-step">3b</span>Scale &amp; Grow</NavLink>
             }
-            <NavLink href="/appointments" class="nav-item"><span class="nav-step">4</span>Search &amp; Book</NavLink>
+            <NavLink href="/appointments" class="nav-item"><span class="nav-step">5</span>Search &amp; Book</NavLink>
         </nav>
     </header>
     <main class="content">@Body</main>

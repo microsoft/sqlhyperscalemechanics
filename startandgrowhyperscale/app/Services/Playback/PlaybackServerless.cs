@@ -47,6 +47,9 @@ public sealed class PlaybackSqlWorkload(IConfiguration configuration, ILogger<Se
     public override void Start(ServerlessConfiguration target, int workers, int minutes) =>
         Launch(workers, TimeSpan.FromMinutes(minutes), null);
 
+    public override void Start(ServerlessConfiguration target, int workers, TimeSpan duration) =>
+        Launch(workers, duration, null);
+
     public override void StartRamp(ServerlessConfiguration target, WorkloadRamp ramp)
     {
         ramp.Validate();

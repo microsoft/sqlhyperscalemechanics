@@ -13,14 +13,14 @@
 
 <section class="page-header heading-row">
     <div>
-        <p class="eyebrow">Step 1 · Start here · Hyperscale serverless@(scripted ? " · SCRIPTED ILLUSTRATION · Not Azure telemetry" : "")</p>
+        <p class="eyebrow">Step 1 · Start here · Hyperscale serverless</p>
         <h1>Caldova Patient Access</h1>
         <p>Staff sign in and get to work. The database behind them scales on its own.</p>
     </div>
     <div class="transport">
         @if (Busy)
         {
-            <button class="btn btn-primary btn-play" @onclick="StopAsync">■ Stop</button>
+            <button class="btn btn-primary btn-play" disabled="@stopping" @onclick="StopAsync">■ Stop</button>
         }
         else
         {
@@ -34,14 +34,7 @@
     </div>
 </section>
 
-@if (scripted)
-{
-    <div class="callout callout-info">
-        <strong>Scripted illustration.</strong> Staff, activities, cores, pause, resume, and the compressed clock are all scripted.
-        This mode runs no SQL workload and does not prove that the database scaled or paused.
-    </div>
-}
-else
+@if (!scripted)
 {
     @if (!Workload.Enabled) { <p class="callout callout-info">Load generation is disabled on this deployment.</p> }
 }
@@ -65,8 +58,8 @@ else
                 </div>
             </div>
             <div class="app-clock">
-                <small>@(scripted ? "Today (simulated)" : "Now (UTC)")</small>
-                <strong>@snap.SimulatedTime.ToString(scripted ? "h:mm tt" : "HH:mm:ss", CultureInfo.InvariantCulture)</strong>
+                <small>@(scripted ? "Today" : "Elapsed")</small>
+                <strong>@(scripted ? snap.SimulatedTime.ToString("h:mm tt", CultureInfo.InvariantCulture) : ElapsedTime)</strong>
             </div>
         </div>
 
@@ -128,7 +121,7 @@ else
                     @foreach (var a in snap.Activity)
                     {
                         <li @key="a.Sequence" class="board-row">
-                            <time>@a.At.ToString("h:mm")</time>
+                            <time>@ActivityTime(a)</time>
                             <span class="kind kind-@a.Kind.Replace(" ", "").ToLowerInvariant()">@a.Kind</span>
                             <span class="patient">@a.Patient</span>
                             <span class="svc">@a.Specialty <small>@a.Clinic</small></span>
@@ -150,15 +143,15 @@ else
 
         <div class="vcore-readout">
             <strong>@Readout</strong>
-            <span>@(scripted ? "scripted vCores (CPU)" : snap.Status == ServerlessStatus.Paused ? "paused" : "vCores in use (CPU)")</span>
+            <span>@(scripted ? "vCores in use (CPU)" : snap.Status == ServerlessStatus.Paused ? "paused" : AwaitingCpu ? "minimum vCores" : "vCores in use (CPU)")</span>
         </div>
         <div class="gauge" title="@F(snap.MinVCores)–@F(snap.MaxVCores) vCores">
-            <div class="gauge-fill" style="width:@F(Math.Min(100, snap.VCores / snap.MaxVCores * 100))%"></div>
+            <div class="gauge-fill" style="width:@F(Math.Min(100, DisplayVCores / snap.MaxVCores * 100))%"></div>
             <div class="gauge-min" style="left:@F(snap.MinVCores / snap.MaxVCores * 100)%"></div>
         </div>
         <div class="gauge-scale"><span>0</span><span>min @F(snap.MinVCores)</span><span>max @F(snap.MaxVCores)</span></div>
 
-        <svg class="spark" viewBox="0 0 @SW @SH" preserveAspectRatio="none" aria-label="@(scripted ? "Scripted vCore illustration, not measured compute" : "Measured SQL CPU used in average vCores")">
+        <svg class="spark" viewBox="0 0 @SW @SH" preserveAspectRatio="none" aria-label="@(scripted ? "CPU usage in vCores" : "Measured SQL CPU used in average vCores")">
             @{
                 var pause = snap.Samples.FirstOrDefault(s => s.Status == ServerlessStatus.Paused);
                 if (pause is not null)
@@ -181,11 +174,7 @@ else
             <strong>@StatusLabel</strong>
         </div>
         <p class="status-detail">@(scripted ? snap.StatusDetail : StatusDetail)</p>
-        @if (scripted)
-        {
-            <p class="status-detail">Scripted curve and compressed clock; not a measurement or performance guarantee.</p>
-        }
-        else
+        @if (!scripted)
         {
             <p class="status-detail">Average CPU per 15-second interval (<code>avg_cpu_percent × cpu_limit / 100</code>).</p>
         }
@@ -198,15 +187,14 @@ else
     <h2>Before moving on: what did Caldova pay for?</h2>
     <a class="btn btn-secondary" href="@Monitor.PortalUrl" target="_blank" rel="noopener noreferrer">Open Caldova database in Azure portal</a>
     <p>Show the actual billed-compute bar chart in the portal without hovering over the numbers: online minimum,
-        above minimum with activity, back down, no compute charge during confirmed auto-pause, and billing returning after resume.
-        The app's CPU chart does not use Azure Monitor, and this illustration generates no billing evidence.</p>
+        above minimum with activity, back down, no compute charge during confirmed auto-pause, and billing returning after resume.</p>
     <p>Idle but online: minimum compute charges still apply. Confirmed paused intervals have no compute charges.
         Storage and applicable backup charges continue. Missing samples are not proof of zero charges.</p>
     <details>
         <summary>Presenter setup · metric units, permissions, and evidence</summary>
         <p>App CPU billed (<code>app_cpu_billed</code>, Sum) is in vCore-seconds; a workbook can divide by bucket seconds
             for average billed vCores. CPU percentage (<code>app_cpu_percent</code>) is optional diagnostic detail.
-            Use the recorded real workload window, not the illustration's clock. Confirm pause/resume through Azure activity records.</p>
+            Use the recorded workload window. Confirm pause/resume through Azure activity records.</p>
     </details>
 </section>
 }
@@ -218,11 +206,11 @@ else
     <pre class="code">@ServerlessSqlWorkload.Query</pre>
     <p>CPU comes from <code>sys.dm_db_resource_stats</code> in 15-second intervals.</p>
     <table class="slots">
-        <thead><tr><th>UTC interval end</th><th>CPU % (Average)</th><th>vCore limit</th><th>CPU used (average vCores)</th></tr></thead>
+        <thead><tr><th>Elapsed at interval end</th><th>CPU % (Average)</th><th>vCore limit</th><th>CPU used (average vCores)</th></tr></thead>
         <tbody>
             @foreach (var sample in samples)
             {
-                <tr><td>@sample.At.UtcDateTime.ToString("HH:mm:ss", CultureInfo.InvariantCulture)</td><td>@F(sample.CpuPercent)</td><td>@F(sample.CpuLimit)</td><td>@F(sample.UsedVCores)</td></tr>
+                <tr><td>@ElapsedAt(sample.At)</td><td>@F(sample.CpuPercent)</td><td>@F(sample.CpuLimit)</td><td>@F(RoundVCores(sample.UsedVCores))</td></tr>
             }
         </tbody>
     </table>
@@ -232,11 +220,13 @@ else
 @code {
     [Parameter] public bool? ForceScripted { get; set; }
 
-    private enum RunPhase { Ready, Starting, Baseline, Load, Cooldown, Complete, Failed }
+    private enum RunPhase { Ready, Starting, Load, Cooldown, Complete, Stopped, Failed }
     private const double SW = 300, SH = 110;
-    private static readonly TimeSpan Baseline = TimeSpan.FromSeconds(30);
     // SQL publishes each 15-second interval after it closes, so cooldown waits long enough to capture the fall to zero.
     private static readonly TimeSpan Cooldown = TimeSpan.FromSeconds(75);
+    private static readonly TimeSpan ResumeActivity = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan SamplePollInterval = TimeSpan.FromSeconds(3);
+    private const int ResumeWorkers = 4;
 
     private readonly CancellationTokenSource lifetime = new();
     private readonly MeasuredClinicScene scene = new();
@@ -249,13 +239,13 @@ else
     private Task? ticking;
     private RunPhase phase = RunPhase.Ready;
     private int workers = 8;
-    // Fast ramp up; slower ramp down so the one-minute portal billing bars show the decline.
-    private int stepSeconds = 15;
-    private int holdSeconds = 60;
-    private int stepDownSeconds = 45;
+    private int stepSeconds = 10;
+    private int holdSeconds = 55;
+    private int stepDownSeconds = 10;
     private ServerlessConfiguration? database;
     private DateTimeOffset? runStart;
-    private TimeSpan planned = TimeSpan.FromMinutes(10);
+    private DateTimeOffset? elapsedStart;
+    private TimeSpan planned = TimeSpan.FromMinutes(4.5);
     private string? error;
     private IReadOnlyList<ServerlessCpuSample> samples = [];
     private SqlWorkloadSnapshot load = new(false, 0, 0, 0, null, null, null);
@@ -264,9 +254,11 @@ else
     private bool resuming;
     private int resumeAttempt;
     private ResumeResult? resumed;
+    private bool resumeActivity;
+    private bool stopping;
     private Task? statusLoop;
 
-    private bool Busy => scripted ? snap.IsRunning : phase is RunPhase.Starting or RunPhase.Baseline or RunPhase.Load or RunPhase.Cooldown;
+    private bool Busy => scripted ? snap.IsRunning : stopping || phase is RunPhase.Starting or RunPhase.Load or RunPhase.Cooldown;
 
     protected override void OnInitialized()
     {
@@ -305,9 +297,26 @@ else
             _ => null,
         };
 
-    private string Readout => scripted ? snap.VCores.ToString("0.00", CultureInfo.InvariantCulture)
-        : snap.Status == ServerlessStatus.Paused ? "0.00"
-        : samples.Count == 0 ? "–" : snap.VCores.ToString("0.00", CultureInfo.InvariantCulture);
+    private static double RoundVCores(double value) => Math.Ceiling(value * 4) / 4;
+    private bool AwaitingCpu => !scripted && Busy && samples.Count == 0;
+    private double DisplayVCores => snap.Status == ServerlessStatus.Paused ? 0
+        : AwaitingCpu ? snap.MinVCores : RoundVCores(snap.VCores);
+    private string Readout => snap.Status == ServerlessStatus.Paused ? "0.00"
+        : !scripted && samples.Count == 0 && !AwaitingCpu ? "–"
+        : DisplayVCores.ToString("0.00", CultureInfo.InvariantCulture);
+
+    private string ElapsedTime => elapsedStart is null ? "00:00:00" : ElapsedAt(DateTimeOffset.UtcNow);
+    private string ElapsedAt(DateTimeOffset at) => elapsedStart is { } start
+        ? FormatElapsed((at - start).TotalSeconds) : "–";
+    private string ActivityTime(AppActivity activity) => scripted
+        ? activity.At.ToString("h:mm", CultureInfo.InvariantCulture)
+        : activity.RecordedAt is { } at ? ElapsedAt(at) : "–";
+    private static string FormatElapsed(double seconds)
+    {
+        var elapsed = TimeSpan.FromSeconds(Math.Floor(Math.Abs(seconds)));
+        return string.Create(CultureInfo.InvariantCulture,
+            $"{(seconds < 0 ? "-" : "")}{(long)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}");
+    }
 
     private async Task AzureStatusLoopAsync()
     {
@@ -340,8 +349,10 @@ else
     private async Task ResumeAsync()
     {
         if (scripted || Busy || resuming) return;
+        elapsedStart ??= DateTimeOffset.UtcNow;
         error = null;
         resumed = null;
+        resumeActivity = false;
         resumeAttempt = 0;
         resuming = true;
         scene.Reset();
@@ -352,10 +363,26 @@ else
             var target = await Monitor.ReadConfigurationAsync(lifetime.Token);
             resumed = await Resume.SignInAsync(target, attempt => resumeAttempt = attempt, lifetime.Token);
             // A sign-in after a finished run starts a new session; the run's chart samples are kept.
-            if (phase is RunPhase.Complete) phase = RunPhase.Ready;
+            if (phase is RunPhase.Complete or RunPhase.Stopped) phase = RunPhase.Ready;
             var current = await Monitor.ReadConfigurationAsync(lifetime.Token);
             armStatus = current.Status;
             armCheckedAt = DateTimeOffset.UtcNow;
+            if (Workload.Enabled)
+            {
+                var previousSamples = samples.ToArray();
+                var activityStart = DateTimeOffset.UtcNow;
+                database = current;
+                runStart ??= activityStart.AddSeconds(-30);
+                if (previousSamples.Length == 0)
+                    planned = TimeSpan.FromSeconds(30) + ResumeActivity + Cooldown;
+                run?.Dispose();
+                run = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                Workload.Start(current, ResumeWorkers, ResumeActivity);
+                resumeActivity = true;
+                phase = RunPhase.Load;
+                polling = PollAsync(activityStart, run.Token, previousSamples);
+                runTask = CompleteResumeActivityAsync(run.Token);
+            }
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch (Exception ex) when (ex is Microsoft.Data.SqlClient.SqlException or HttpRequestException or InvalidOperationException
@@ -387,8 +414,8 @@ else
         catch (ArgumentOutOfRangeException ex) { error = ex.Message; return; }
         ResetMeasured();
         phase = RunPhase.Starting;
-        runStart = DateTimeOffset.UtcNow;
-        planned = Baseline + ramp.Total + Cooldown;
+        runStart = elapsedStart = DateTimeOffset.UtcNow;
+        planned = ramp.Total + Cooldown;
         run = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         polling = PollAsync(runStart.Value, run.Token);
         runTask = OrchestrateAsync(ramp, run.Token);
@@ -398,9 +425,24 @@ else
     private async Task StopAsync()
     {
         if (scripted) { Script.Pause(); Refresh(); return; }
-        // Stopping the workload lets the run continue into its measured cooldown.
-        await Workload.StopAsync();
-        if (phase is RunPhase.Starting or RunPhase.Baseline) run?.Cancel();
+        if (stopping) return;
+        stopping = true;
+        try
+        {
+            run?.Cancel();
+            await Workload.StopAsync();
+            if (runTask is not null) await runTask;
+            if (polling is not null) await polling;
+            load = Workload.Snapshot;
+            resumeActivity = false;
+            scene.Update(DateTimeOffset.UtcNow, 0, load.Completed);
+            if (phase is not RunPhase.Failed) phase = RunPhase.Stopped;
+        }
+        finally
+        {
+            stopping = false;
+            Refresh();
+        }
     }
 
     private void Reset()
@@ -418,9 +460,11 @@ else
         phase = RunPhase.Ready;
         error = null;
         resumed = null;
+        resumeActivity = false;
         samples = [];
         database = null;
         runStart = null;
+        elapsedStart = null;
         scene.Reset();
     }
 
@@ -429,8 +473,7 @@ else
         try
         {
             while (database is null) await Task.Delay(250, token);
-            phase = RunPhase.Baseline;
-            await Task.Delay(Baseline, token);
+            token.ThrowIfCancellationRequested();
             Workload.StartRamp(database, ramp);
             phase = RunPhase.Load;
             while (Workload.Snapshot.Running) await Task.Delay(500, token);
@@ -459,18 +502,55 @@ else
         }
     }
 
-    private async Task PollAsync(DateTimeOffset start, CancellationToken token)
+    private async Task CompleteResumeActivityAsync(CancellationToken token)
+    {
+        try
+        {
+            while (Workload.Snapshot.Running) await Task.Delay(250, token);
+            if (Workload.Snapshot.Error is { } failure)
+                throw new InvalidOperationException($"Post-resume SQL activity failed: {failure}");
+            phase = RunPhase.Cooldown;
+            await Task.Delay(Cooldown, token);
+            phase = RunPhase.Ready;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            if (phase is not RunPhase.Failed) phase = RunPhase.Ready;
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogError(ex, "Post-resume SQL activity failed");
+            Fail(ex.Message);
+        }
+        finally
+        {
+            run?.Cancel();
+            await Workload.StopAsync();
+            if (polling is not null) await polling;
+            load = Workload.Snapshot;
+            scene.Update(DateTimeOffset.UtcNow, 0, load.Completed);
+            resumeActivity = false;
+            if (!lifetime.IsCancellationRequested) await InvokeAsync(() => { Refresh(); StateHasChanged(); });
+        }
+    }
+
+    private async Task PollAsync(DateTimeOffset start, CancellationToken token,
+        IReadOnlyList<ServerlessCpuSample>? previousSamples = null)
     {
         try
         {
             database = await Monitor.ReadConfigurationAsync(token);
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+            using var timer = new PeriodicTimer(SamplePollInterval);
             do
             {
                 if (DateTimeOffset.UtcNow - start > TimeSpan.FromMinutes(55))
                     throw new InvalidOperationException("The 55-minute SQL observation window has ended. Start a new run.");
-                // Exclude the interval already in progress at start; it would include pre-run activity.
-                samples = await Telemetry.ReadAsync(database, start.AddSeconds(15), token);
+                // A short resume burst needs real pre-burst points so its first CPU sample can form a line.
+                var from = previousSamples is null ? start.AddSeconds(15) : start.AddSeconds(-30);
+                var currentSamples = await Telemetry.ReadAsync(database, from, token);
+                samples = previousSamples is null ? currentSamples
+                    : previousSamples.Concat(currentSamples).GroupBy(s => s.At)
+                        .Select(group => group.Last()).OrderBy(s => s.At).ToArray();
             } while (await timer.WaitForNextTickAsync(token));
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -479,7 +559,7 @@ else
             or KeyNotFoundException or FormatException or OperationCanceledException or Microsoft.Data.SqlClient.SqlException)
         {
             Logger.LogError(ex, "Serverless SQL DMV observation failed");
-            Fail($"Observation stopped: {ex.Message}. Existing samples are not live. Check Azure resource-read access, SQL identity, VIEW DATABASE STATE permission, and target configuration.");
+            Fail($"Observation stopped: {ex.Message}. Existing samples are historical. Check Azure resource-read access, SQL identity, VIEW DATABASE STATE permission, and target configuration.");
             run?.Cancel();
         }
     }
@@ -519,17 +599,20 @@ else
         ? $"First sign-in is waking the database · attempt {resumeAttempt}, retrying automatically"
         : phase switch
     {
-        RunPhase.Ready or RunPhase.Complete when !Busy && AzureStatus == ServerlessStatus.Paused =>
+        RunPhase.Ready or RunPhase.Complete or RunPhase.Stopped when !Busy && AzureStatus == ServerlessStatus.Paused =>
             "Paused · no compute charges",
         RunPhase.Ready when resumed is { } r =>
             $"First sign-in completed in {r.Elapsed.TotalSeconds:0.#} s · database {armStatus ?? "Online"}",
         RunPhase.Ready => armStatus is null ? "Waiting for the first sign-in" : $"Database {armStatus}",
         RunPhase.Starting => "Connecting",
-        RunPhase.Baseline => "Quiet before staff sign in",
+        RunPhase.Load when resumeActivity && resumed is { } r =>
+            $"First sign-in completed in {r.Elapsed.TotalSeconds:0.#} s · {load.Active} staff working for 30 seconds",
         RunPhase.Load when load.Ramp is { } r && load.Started is { } s => RampStatus(r, DateTimeOffset.UtcNow - s),
         RunPhase.Load => $"{load.Active} staff signed in",
+        RunPhase.Cooldown when resumeActivity => "Afternoon activity finished · observing CPU cooldown",
         RunPhase.Cooldown => "Everyone has signed out",
         RunPhase.Complete => "Clinic day complete · the database can auto-pause later",
+        RunPhase.Stopped => "Stopped · workload and observation ended",
         _ => "Stopped on an error",
     };
 
@@ -543,7 +626,8 @@ else
     private IEnumerable<ScaleSample[]> Segments()
     {
         var current = new List<ScaleSample>();
-        foreach (var sample in snap.Samples)
+        var chartSamples = snap.Samples.Select(point => point with { VCores = RoundVCores(point.VCores) });
+        foreach (var sample in chartSamples)
         {
             // Measured samples arrive about every 15 seconds; a larger gap is missing data, not zero.
             if (current.Count > 0 && sample.ScriptSeconds - current[^1].ScriptSeconds > (scripted ? 5 : 25))
@@ -558,7 +642,7 @@ else
 
     private string Line(ScaleSample[] segment) => string.Join(' ', segment.Select(s => $"{F(SX(s.ScriptSeconds))},{F(SY(s.VCores))}"));
     private double SX(double seconds) => Math.Clamp(seconds / snap.TotalScriptSeconds, 0, 1) * SW;
-    private double SY(double vCores) => SH - vCores / (snap.MaxVCores * 1.15) * (SH - 4);
+    private double SY(double value) => SH - value / (snap.MaxVCores * 1.15) * (SH - 4);
     private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
 
     public async ValueTask DisposeAsync()

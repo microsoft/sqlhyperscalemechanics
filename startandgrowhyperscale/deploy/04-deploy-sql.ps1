@@ -73,10 +73,20 @@ $pool = Invoke-Az @('sql', 'elastic-pool', 'show', '--resource-group', $Resource
 if (-not $pool) {
     Invoke-Az (@('sql', 'elastic-pool', 'create', '--resource-group', $ResourceGroup, '--server', $SqlServerName,
         '--name', $ElasticPoolName, '--edition', 'Hyperscale', '--family', 'Gen5', '--capacity', "$ElasticPoolVCores",
+        '--db-min-capacity', "$ElasticPoolMinVCoresPerDatabase",
+        '--db-max-capacity', "$([Math]::Min($ElasticPoolVCores, $ElasticPoolMaxVCoresPerDatabase))",
         '--zone-redundant', $ZoneRedundant, '--tags') + $Tags + @('--output', 'json')) | Out-Null
     Write-Ok 'Created'
+    $pool = Invoke-Az @('sql', 'elastic-pool', 'show', '--resource-group', $ResourceGroup, '--server', $SqlServerName,
+        '--name', $ElasticPoolName, '--output', 'json')
 }
 else { Write-Skip 'Already exists' }
+
+$expectedMax = [Math]::Min($pool.sku.capacity, $ElasticPoolMaxVCoresPerDatabase)
+if ($pool.perDatabaseSettings.minCapacity -ne $ElasticPoolMinVCoresPerDatabase -or
+    $pool.perDatabaseSettings.maxCapacity -ne $expectedMax) {
+    throw "$ElasticPoolName requires per-database limits $ElasticPoolMinVCoresPerDatabase-$expectedMax at $($pool.sku.capacity) pool vCores. Inspect the pool and approve a separate limit change; do not recreate it."
+}
 
 Write-Host "`nSQL ready on $SqlServerFqdn ($SqlLocation). Databases are standalone; the pool is empty." -ForegroundColor Green
 Write-Host 'Next: run 05-verify-sql.ps1.'

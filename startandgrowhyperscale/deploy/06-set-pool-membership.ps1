@@ -43,7 +43,7 @@ $targets = @(
     }
 )
 
-Write-Step "Preflight: $Mode on $SqlServerFqdn (subscription $SubscriptionId)"
+Write-Step "Preflight: $Mode on $SqlServerFqdn (resource group $ResourceGroup)"
 $pool = Invoke-Az @('sql', 'elastic-pool', 'show', '--subscription', $SubscriptionId,
     '--resource-group', $ResourceGroup, '--server', $SqlServerName, '--name', $ElasticPoolName, '--output', 'json')
 $expectedPoolId = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Sql/servers/$SqlServerName/elasticPools/$ElasticPoolName"
@@ -149,7 +149,7 @@ if (-not $allApproved) {
 }
 
 Write-Step 'Verifying all three databases'
-foreach ($target in $targets) {
+$summary = foreach ($target in $targets) {
     $database = Get-DemoDatabase $target.Name
     if (-not (Test-DesiredState $database $target)) {
         throw "$($target.Name) no longer matches $Mode. Run 05-verify-sql.ps1 to inspect the current state."
@@ -158,9 +158,10 @@ foreach ($target in $targets) {
         Database = $database.name
         Status = $database.status
         Objective = $database.currentServiceObjectiveName
-        Pool = $database.elasticPoolId
+        Pool = if ($database.elasticPoolId) { $ElasticPoolName } else { 'None' }
         MinVCores = $database.minCapacity
         AutoPauseMinutes = $database.autoPauseDelay
-    } | Format-List
+    }
 }
+$summary | Format-List | Out-Host
 Write-Ok "All three databases verified: $Mode. The pool was retained; no data was deleted."
