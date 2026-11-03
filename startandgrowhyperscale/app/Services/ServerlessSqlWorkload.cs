@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.Data.SqlClient;
 
 namespace CaldovaNetworkScheduling.Services;
@@ -7,23 +8,36 @@ public sealed record SqlWorkloadSnapshot(bool Running, int Workers, long Complet
 
 /// <summary>
 /// Staged load: InitialWorkers start immediately, then WorkersPerStep per StepUp; after Hold at peak, groups stop per StepDown.
-/// WorkersPerStepDown optionally sets a different stopping group size.
+/// WorkersPerStepDown optionally sets a different stopping group size, including with explicit increasing levels.
+/// WorkerLevels optionally defines explicit increasing levels, reversed on the way down unless WorkersPerStepDown is set.
 /// (last started stops first). Each stopping worker finishes its in-flight batch; no command is cancelled.
 /// </summary>
 public sealed record WorkloadRamp(int PeakWorkers, TimeSpan StepUp, TimeSpan Hold, TimeSpan StepDown,
-    int InitialWorkers = 1, int WorkersPerStep = 1, int? WorkersPerStepDown = null)
+    int InitialWorkers = 1, int WorkersPerStep = 1, int? WorkersPerStepDown = null,
+    ImmutableArray<int> WorkerLevels = default)
 {
     public WorkloadRamp(int peakWorkers, TimeSpan step, TimeSpan hold) : this(peakWorkers, step, hold, step) { }
 
     public static readonly TimeSpan MaximumTotal = TimeSpan.FromMinutes(10);
-    public TimeSpan PeakAt => StepUp * ((PeakWorkers - InitialWorkers + WorkersPerStep - 1) / WorkersPerStep);
-    public TimeSpan StartAt(int worker) => worker < InitialWorkers ? TimeSpan.Zero
-        : StepUp * ((worker - InitialWorkers) / WorkersPerStep + 1);
+    public TimeSpan PeakAt => StepUp * (WorkerLevels.IsDefault
+        ? (PeakWorkers - InitialWorkers + WorkersPerStep - 1) / WorkersPerStep : WorkerLevels.Length - 1);
+    public TimeSpan StartAt(int worker) => WorkerLevels.IsDefault
+        ? worker < InitialWorkers ? TimeSpan.Zero : StepUp * ((worker - InitialWorkers) / WorkersPerStep + 1)
+        : StepUp * LevelOf(worker);
     public TimeSpan StopAt(int worker) => PeakAt + Hold
-        + StepDown * ((PeakWorkers - 1 - worker) / (WorkersPerStepDown ?? WorkersPerStep));
+        + StepDown * (WorkerLevels.IsDefault || WorkersPerStepDown is not null
+            ? (PeakWorkers - 1 - worker) / (WorkersPerStepDown ?? WorkersPerStep)
+            : WorkerLevels.Length - 1 - LevelOf(worker));
     public TimeSpan Total => StopAt(0);
     public int ActiveAt(TimeSpan elapsed) =>
         Enumerable.Range(0, PeakWorkers).Count(i => elapsed >= StartAt(i) && elapsed < StopAt(i));
+
+    private int LevelOf(int worker)
+    {
+        for (var i = 0; i < WorkerLevels.Length; i++)
+            if (worker >= 0 && worker < WorkerLevels[i]) return i;
+        throw new ArgumentOutOfRangeException(nameof(worker));
+    }
 
     public void Validate()
     {
@@ -34,11 +48,17 @@ public sealed record WorkloadRamp(int PeakWorkers, TimeSpan StepUp, TimeSpan Hol
             throw new ArgumentOutOfRangeException(nameof(WorkersPerStep), "Use 1-16 workers per ramp step.");
         if (WorkersPerStepDown is < 1 or > 16)
             throw new ArgumentOutOfRangeException(nameof(WorkersPerStepDown), "Use 1-16 workers per ramp-down step.");
+        if (!WorkerLevels.IsDefault && (WorkerLevels.Length is < 1 or > 16
+            || WorkerLevels[0] != InitialWorkers || WorkerLevels[^1] != PeakWorkers
+            || Enumerable.Range(1, WorkerLevels.Length - 1).Any(i => WorkerLevels[i] <= WorkerLevels[i - 1])
+            || WorkersPerStep != 1))
+            throw new ArgumentOutOfRangeException(nameof(WorkerLevels),
+                "Levels must increase from the initial workers to the peak, without a separate ramp-up worker-step setting.");
         if (StepUp < TimeSpan.FromSeconds(5) || StepUp > TimeSpan.FromSeconds(120)
             || StepDown < TimeSpan.FromSeconds(5) || StepDown > TimeSpan.FromSeconds(120))
             throw new ArgumentOutOfRangeException(nameof(StepUp), "Use 5-120 second ramp steps.");
-        if (Hold < TimeSpan.FromSeconds(15) || Hold > TimeSpan.FromMinutes(5))
-            throw new ArgumentOutOfRangeException(nameof(Hold), "Use a 15-300 second hold at peak.");
+        if (Hold < TimeSpan.FromSeconds(10) || Hold > TimeSpan.FromMinutes(5))
+            throw new ArgumentOutOfRangeException(nameof(Hold), "Use a 10-300 second hold at peak.");
         if (Total > MaximumTotal)
             throw new ArgumentOutOfRangeException(nameof(StepUp), $"Ramp lasts {Total.TotalMinutes:0.#} minutes; the limit is {MaximumTotal.TotalMinutes} minutes.");
     }

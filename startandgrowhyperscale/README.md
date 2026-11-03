@@ -321,7 +321,7 @@ bar chart still requires the presenter to set and verify the intended view.
 | | |
 |---|---|
 | URL | <https://app-caldova-network-0efc44.azurewebsites.net> |
-| Resource group | `caldova-network-rg` (subscription `AzureSQL_bobward`) |
+| Resource group | `caldova-network-rg` (currently signed-in Azure subscription) |
 | App Service | `app-caldova-network-0efc44` on Windows S1 plan `asp-caldova-network-0efc44`, East US 2 |
 | Logical server | `sql-caldova-network-0efc44.database.windows.net` — **East US 2**, Microsoft Entra-only auth, public endpoint + firewall |
 | Elastic pool | `caldova-network-pool` — Hyperscale, 8 vCores, on the same logical server; **empty** for now |
@@ -346,6 +346,111 @@ The top navigation is numbered in story order.
 | **4 · Search & Book** (`/appointments`) | Stay here | Compare Caldova-only and network searches. Read a native cross-database join view, then book in one transaction from Caldova that updates the slot and inserts an appointment, both in the provider's database. |
 
 ## Measured serverless chapter
+
+### Save a live run, then replay it for recording
+
+Patient Access defaults to live SQL. You can optionally save a completed **Run**,
+restart the app in saved-run mode, and use the same **Run** button to play that
+capture faster. This is separate from the older synthetic `Demo:Playback`
+backup mode: saved runs use your original DMV samples and captured UI frames,
+not generated CPU readings.
+
+The page intentionally has no playback or speed badge. A recording made in this
+mode is a **time-compressed replay of an earlier measured run**, not a new
+real-time Azure measurement. Describe it accordingly when presenting or sharing
+the video. Staff, counters, illustrative patient activity, CPU, and chart history
+all advance on one source-time clock. CPU values, timestamps, gaps, and ordering
+are retained without interpolation. Patient rows visualize the CPU workload;
+they are not appointment writes.
+
+**1. Capture live.** From the repository root in PowerShell, verify that the
+`part1` connection and monitor settings target your intended Start database.
+Use the normal setup, Entra permissions, and live-workload approval first.
+The profile enables real SQL work; connecting can resume compute, incur charges,
+and restart the auto-pause idle period.
+
+```powershell
+$env:Demo__Playback = "false"
+$env:ServerlessRecording__Mode = "Live"
+$env:ServerlessRecording__File = Join-Path (Get-Location) ".artifacts\caldova-serverless-run.json"
+dotnet run --project .\startandgrowhyperscale\app\CaldovaNetworkScheduling.csproj --configuration Release --launch-profile part1
+```
+
+Open `http://localhost:5099/` and click **Run**. Leave the tab connected until
+the run completes and the console reports **Saved completed serverless Run**.
+The live screen has no elapsed header clock. The restored Run control and the
+saved-completion log identify that capture has finished.
+The current plan is 195 seconds plus startup and in-flight SQL time. A complete
+file includes the trailing CPU observation. Stop, failure, tab disposal, or
+save cancellation does not replace the previous good file. Save errors appear
+on the page and in the console; do not assume completion of SQL work proves
+that a capture was saved.
+
+Captures are written atomically outside `wwwroot`; the `.artifacts` location
+above is ignored by Git. They contain raw CPU samples and displayed scene
+frames, including synthetic patient names, but no connection strings, tokens,
+subscription IDs, or tenant IDs. Review any capture before sharing it.
+
+**2. Restart using the saved run.** Stop the local host with Ctrl+C, then run:
+
+```powershell
+$env:Demo__Playback = "false"
+$env:ServerlessRecording__Mode = "Replay"
+$env:ServerlessRecording__File = Join-Path (Get-Location) ".artifacts\caldova-serverless-run.json"
+$savedRun = Get-Content -LiteralPath $env:ServerlessRecording__File -Raw | ConvertFrom-Json
+$env:ServerlessRecording__Speed = ([double]$savedRun.frames[-1].elapsedSeconds / 30).ToString("R", [Globalization.CultureInfo]::InvariantCulture)
+dotnet run --project .\startandgrowhyperscale\app\CaldovaNetworkScheduling.csproj --configuration Release --launch-profile part1
+```
+
+Refresh `http://localhost:5099/` and click **Run**. The calculated speed targets
+30 seconds of playback using the complete capture's actual duration, not its
+planned duration. For a slower presentation, divide by 75 instead of 30.
+The resulting speed must remain within the supported 0.25-10 range.
+Live and replay hide the header elapsed clock. Sample/activity times retain original
+source time, not wall-clock playback time. Before the first saved CPU sample,
+the readout and gauge start at zero with no pending label. Staff, patient rows,
+and counters stay at their empty initial view until the first aligned CPU frame.
+This hides any newer, unaligned startup previews in older captures, preventing
+rows or counters from jumping backward when the first CPU sample arrives.
+The original saved data remains unchanged. New live captures use the same
+startup gating. The activity-status
+line follows staff signing in, working, and signing out as the left-hand
+activity changes; it contains no CPU-waiting message. Once staff reaches zero,
+the sign-out phase continues until measured CPU reaches zero; only then does
+it say everyone has signed out. During that trailing interval, the left staff
+header also says **Staff signing out** instead of showing a zero staff count;
+the real zero count returns when CPU reaches zero. Neither CPU readings nor
+staff counts are changed.
+This placeholder is
+not inserted into the saved measurements or chart. **Stop** pauses, **Run** continues, and **Reset**
+returns to the beginning. Run after completion starts the same capture again.
+Speed can be 0.25-10; change the setting and restart to try another speed.
+
+The serverless replay path does not poll ARM, connect to SQL, generate load,
+resume compute, or change any Azure resource. Its live **Sign in (resume)**
+control is hidden. Missing, malformed, incompatible, or incomplete capture files
+stop startup explicitly; there is no fallback to live SQL or synthetic data.
+`/healthz` reports `mode: replay` and `serverless: saved-sql-dmv` for operational
+verification. Other app chapters remain separate, potentially live operations;
+do not navigate to them assuming they use this capture.
+
+This capture covers the morning **Run**, not the hour-long auto-pause wait,
+first-sign-in resume, Azure Monitor billing, or Grow scenes. Those remain real,
+separately approved operations in live mode.
+
+**3. Return to live.** Stop the host, set
+`$env:ServerlessRecording__Mode = "Live"`, and remove
+`ServerlessRecording__File` from the process environment if you do not want
+to capture another run:
+
+```powershell
+$env:ServerlessRecording__Mode = "Live"
+Remove-Item Env:\ServerlessRecording__File
+dotnet run --project .\startandgrowhyperscale\app\CaldovaNetworkScheduling.csproj --configuration Release --launch-profile part1
+```
+
+The existing saved file is retained. Capture/replay settings do not deploy,
+populate, reset, or reconfigure a database.
 
 ### Presentation focus: billed compute
 
@@ -489,7 +594,59 @@ in-flight batch, no command is cancelled). Defaults: peak 8 workers
 (`--serverless-workers`), `--serverless-ramp-step-seconds 30`,
 `--serverless-ramp-hold-seconds 60`, giving 0 -> 8 -> 0 over 8 minutes
 (total limited to 10 minutes). The harness logs active workers alongside DMV
-samples. The Patient Access page offers the same ramp, enabled by default.
+samples. These harness defaults are unchanged.
+
+The Patient Access page uses a separate **195-second planned Run** with explicit
+worker levels: 1 at startup, 2 at 15 seconds, 6 at 30 seconds, and 10 at 45 seconds.
+After a 60-second peak hold, two workers stop every 15 seconds: 8 at 105 seconds,
+6 at 120, 4 at 135, 2 at 150, then zero at 165 seconds. Workers finish their
+in-flight batches. Ramp-up remains 45 seconds; sign-outs span 60 seconds.
+Ten concurrent workers target the eight-vCore database cap without the long
+saturated sign-out plateau seen with 16 workers. The staff display honestly
+shows those workers, not eight simulated staff.
+Verify that an actual capture reaches the desired CPU peak and declines before
+using it for recording; the workload schedule alone is not measured proof.
+Another 30 seconds observes trailing SQL samples. Startup and in-flight batches
+can add time; late telemetry may not include a final zero within this window.
+The separate post-resume observation remains 75 seconds, and Azure auto-pause
+remains 60 minutes. The 195-second timing is offline-tested; its real peak,
+sample delivery, and decline still require live verification.
+
+Staff avatars, activity, and sign-in/sign-out status use recorded worker
+observations at the displayed CPU interval's midpoint, not the current
+wall-clock stage. The presentation omits the interval/staff explanation line;
+raw samples remain available behind the chart. During live activity, Stop
+remains available, including trailing CPU observation. Internal elapsed tracking
+freezes when activity completes, stops, or fails, but no header clock is shown.
+Reset clears it; a new Run starts over, while resume activity preserves its existing origin.
+Worker counts are observed every
+half second. Illustrative patient rows and counters advance at that cadence
+while actual SQL batches complete, and their full historical frame is retained
+with each observation. The CPU display selects that frame rather than generating
+patient activity once per 15-second sample. New staff can therefore appear
+working within their first displayed interval. These are workload visuals,
+not actual appointment writes. Stopped CPU readings are labeled as the last
+recorded value, and the schedule as recorded activity. A normally completed
+live run instead retains the same schedule heading, CPU label, and completion
+message as replay; the live scene continues watching Azure management state
+for auto-pause without starting more SQL work.
+Staff counts are not CPU-used vCores, and a 15-second average may
+span a transition; exact 1/2/6/8 CPU readings or matching CPU direction at every
+step are not guaranteed. Missing intervals are never filled or synthesized.
+The same interval alignment applies to post-resume activity.
+
+After sign-in, the app focuses the CPU plot on a separate 135-second resume
+window: 30 seconds of real baseline, 30 seconds of workload, and 75 seconds of
+trailing observation. This keeps the resume curve readable after a long pause
+instead of squeezing it against the right edge of a morning-to-evening chart.
+Earlier samples and their original timestamp gaps remain in the raw history;
+they are excluded only from the focused plot. No pause samples are invented.
+Reset or a new Run clears the resume window.
+
+The CPU gauge uses numeric hash marks at 1, 2, 6, and 8 for the 1-8-vCore
+configuration. Marks and fill share the same CPU-used scale: six used vCores
+reach 75% of the eight-vCore bar. The configured compute range is labeled
+separately; CPU measurements below one remain unchanged.
 
 The approved harness ramp from the same Cloud PC (SQL start 00:45:40, stop
 00:53:40 UTC on 2026-10-23) completed **7,647 batches with 0 failures**. DMV
@@ -816,6 +973,43 @@ Mocked lifecycle tests (no Azure changes), from the repository root:
 .\startandgrowhyperscale\deploy\tests\part1-lifecycle.tests.ps1
 ```
 
+## Start-server pool-only rehearsal
+
+The demo skill recognizes **Create the pool on the Start server**. Once all
+three Start databases exist, preview only the new pool:
+
+```powershell
+.\startandgrowhyperscale\deploy\14-create-part1-pool.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf
+```
+
+After explicit approval, repeat without `-WhatIf`. This creates only an empty
+`caldova-network-pool` on Start: Hyperscale Gen5, 8 total vCores, per-database
+minimum 0 / maximum 8, no zone redundancy. It retains existing Entra-only,
+TLS 1.2, Allow Azure services, local database backups, and server preview settings.
+It verifies the current subscription/user without switching accounts and hides
+subscription/tenant identifiers in plans and errors.
+
+Compatible existing pools are reused; mismatched pools or failed prerequisite
+reads stop without updates or recreation. Creation is independently verified.
+No databases are created, moved, populated, or resumed via SQL. Grow resources
+and app configuration/connections remain unchanged. Do not run the broader
+`04-deploy-sql.ps1` or repoint Grow configuration for this task.
+Start pool membership is separately authorized and explicitly targeted:
+
+```powershell
+.\startandgrowhyperscale\deploy\06-set-pool-membership.ps1 -Target Start -ExpectedServerName sql-caldova-start-0efc44 -Mode Pooled -WhatIf
+```
+
+After approval for Caldova conversion and all three moves, use the same command
+without `-WhatIf` and with `-Confirm:$false`. Grow remains the script's default
+target; Start never requires repointing Grow or changing the app.
+
+Offline validation:
+
+```powershell
+.\startandgrowhyperscale\deploy\tests\part1-pool.tests.ps1
+```
+
 ## SQL setup
 
 For scripted deployment using the current Azure CLI user's credentials, use
@@ -940,7 +1134,8 @@ section) in the same Copilot chat used for the rest of the demo, with prompts su
 - "Integrate Caldova's acquired providers into the scheduling pool."
 - "Return the providers to standalone and restore Caldova serverless."
 
-The skill previews the change, obtains approval, then runs the canonical script.
+The skill previews the whole three-database change, obtains approval once, then
+runs the canonical script with `-Confirm:$false`.
 The same script can be run directly:
 
 ```powershell
@@ -953,8 +1148,19 @@ The same script can be run directly:
 Stop appointment/workload traffic first. Changes run synchronously and sequentially;
 connections may be interrupted. Every database is checked before the first update,
 and every move is verified afterward. A failed operation stops without automatically
-undoing earlier moves; inspect `05-verify-sql.ps1`, then rerun the desired direction.
+undoing earlier moves. It reports partial states; inspect all three databases on
+the exact approved server before continuing the desired direction. Do not use
+the Grow-only verifier for a Start operation.
 `-WhatIf` performs read-only Azure preflight and never updates databases.
+
+Each conversion, detach, or move waits for ARM readiness/configuration instead
+of treating a delayed response as failure or repeating writes. The default
+`-WaitTimeoutSeconds 1800` / `-PollIntervalSeconds 5` bounds each phase's
+read-only observation. Read failures and terminal states stop explicitly.
+After interruption, a rerun waits for in-flight operations, skips existing correct
+members and completed conversions, and finishes only the remaining approved
+changes. User cancellation is not permission to resume automatically. Completion
+requires independent verification of all three databases, not just the first move.
 
 Pooled mode converts Caldova to provisioned compute and adds all three databases to
 the **existing** Hyperscale pool. Standalone mode restores Caldova to serverless
@@ -1034,6 +1240,21 @@ record a subset; `p2-growth` continues `p2-scale`. Restart the app between full
 recordings to reset bookings and pool state.
 
 ## Run locally
+
+Public app and launch settings use `{subscription-id}`, not a real Azure
+subscription or tenant identifier. Before a live local launch, store the current
+subscription privately (PowerShell, from the repository root):
+
+```powershell
+dotnet user-secrets set "Azure:SubscriptionId" (az account show --query id --output tsv) --project .\startandgrowhyperscale\app\CaldovaNetworkScheduling.csproj
+```
+
+The value is kept outside the repository and loaded for Development launches.
+`AZURE_SUBSCRIPTION_ID` is an alternative private environment setting. Resolution
+retains each profile's server/database; it does not switch Azure accounts.
+Explicit full `ServerlessMonitor:ResourceId` environment/App Service settings
+remain supported. Offline replay/playback does not need private identifiers.
+Never commit secret-store files, access tokens, or real subscription/tenant IDs.
 
 ```powershell
 cd app

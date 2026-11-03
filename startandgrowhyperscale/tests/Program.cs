@@ -20,9 +20,34 @@ void Check(bool condition, string description)
 
 var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
 {
-    ["ServerlessMonitor:ResourceId"] = "/subscriptions/0efc44aa-c965-420f-aac4-fff305dbcc97/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/sql-caldova-network-0efc44/databases/caldova-scheduling",
+    ["ServerlessMonitor:ResourceId"] = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/sql-caldova-network-0efc44/databases/caldova-scheduling",
     ["ServerlessMonitor:EnableWorkload"] = "false"
 }).AddEnvironmentVariables().Build();
+var privateConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+{
+    ["ServerlessMonitor:ResourceId"] = "/subscriptions/{subscription-id}/resourceGroups/caldova-test-rg/providers/Microsoft.Sql/servers/sql-caldova-start-test/databases/caldova-scheduling",
+    ["Azure:SubscriptionId"] = "33333333-3333-3333-3333-333333333333"
+}).Build();
+Check(ServerlessMonitor.ResolveConfiguredResourceId(privateConfig).Contains("/subscriptions/33333333-3333-3333-3333-333333333333/")
+    && ServerlessMonitor.ResolveConfiguredResourceId(privateConfig).Contains("/servers/sql-caldova-start-test/"),
+    "Private subscription configuration resolves the public placeholder without changing the selected server");
+privateConfig["Azure:SubscriptionId"] = null;
+privateConfig["AZURE_SUBSCRIPTION_ID"] = "44444444-4444-4444-4444-444444444444";
+Check(ServerlessMonitor.ResolveConfiguredResourceId(privateConfig).Contains("/subscriptions/44444444-4444-4444-4444-444444444444/"),
+    "Environment subscription configuration also resolves the public placeholder");
+privateConfig["AZURE_SUBSCRIPTION_ID"] = null;
+Check(ServerlessMonitor.ResolveConfiguredResourceId(privateConfig, offline: true).Contains($"/subscriptions/{Guid.Empty:D}/"),
+    "Offline replay and synthetic playback do not require private Azure identifiers");
+foreach (var invalid in new[] { "", "invalid", Guid.Empty.ToString("D") })
+{
+    privateConfig["Azure:SubscriptionId"] = invalid;
+    var rejected = false;
+    try { ServerlessMonitor.ResolveConfiguredResourceId(privateConfig); }
+    catch (InvalidOperationException) { rejected = true; }
+    Check(rejected, "Live mode explicitly rejects missing or invalid private subscription configuration");
+}
+Check(ServerlessMonitor.ResolveConfiguredResourceId(configuration) == configuration["ServerlessMonitor:ResourceId"],
+    "An explicitly configured complete resource target remains unchanged");
 if (args.Contains("--pool-cli-check"))
 {
     var currentName = await new AzureCliRunner().RunAsync(
@@ -159,6 +184,8 @@ services.AddScoped<ServerlessSqlWorkload>();
 services.AddScoped<ServerlessSqlTelemetry>();
 services.AddScoped<ServerlessResume>();
 services.AddSingleton(TimeProvider.System);
+services.AddSingleton(new ServerlessRecordingSettings("Live", null, 2));
+services.AddScoped<ServerlessRunRecording>();
 services.AddScoped<PoolPresentation>();
 services.AddOptions<ServerlessScriptOptions>();
 services.AddScoped<IScaleWorkload, ScriptedScaleWorkload>();
@@ -193,9 +220,19 @@ Check(patientAccess.Contains("Behind the chart") && patientAccess.Contains("HASH
 Check(patientAccess.Contains("avg_cpu_percent × cpu_limit / 100") && patientAccess.Contains("sys.dm_db_resource_stats")
     && patientAccess.Contains("15-second"), "CPU calculation, source, and interval are shown");
 Check(patientAccess.Contains("▶ Run") && patientAccess.Contains("vCores in use") && !patientAccess.Contains("scripted vCores"), "Patient Access uses the live scene");
-Check(patientAccess.Contains("<small>Elapsed</small>") && patientAccess.Contains("00:00:00")
+Check(patientAccess.Contains("Configured compute: 1 - 8 vCores")
+    && !patientAccess.Contains("<span>0</span><span>min"),
+    "Patient Access labels the configured 1 - 8 range without presenting zero as its configured minimum");
+Check(!patientAccess.Contains("gauge-min"),
+    "The configured minimum has no solid marker through the CPU gauge");
+Check(patientAccess.Contains("data-vcores=\"1\" style=\"left:12.5%\"")
+    && patientAccess.Contains("data-vcores=\"2\" style=\"left:25%\"")
+    && patientAccess.Contains("data-vcores=\"6\" style=\"left:75%\"")
+    && patientAccess.Contains("data-vcores=\"8\" style=\"left:100%\""),
+    "CPU gauge hash marks 1, 2, 6 and 8 are positioned by their numeric values rather than evenly spaced");
+Check(!patientAccess.Contains("class=\"app-clock\"") && !patientAccess.Contains("<small>Elapsed</small>")
     && patientAccess.Contains("Elapsed at interval end") && !patientAccess.Contains("UTC"),
-    "Measured page uses an elapsed clock and sample times instead of UTC");
+    "Measured page omits the header elapsed clock while retaining elapsed sample timestamps");
 foreach (var label in new[] { "MEASURED", "measured vCores", "Measured.", "illustrative", "synthetic", "Azure status", "SQL DMV", "not allocated", "Gaps are not" })
     Check(!patientAccess.Contains(label), $"Patient Access shows no '{label}' label");
 Check(!patientAccess.Contains("Next · Step 2"), "Serverless chapter ends independently");
@@ -204,6 +241,8 @@ Check(patientAccess.Contains("staff online") && patientAccess.Contains("Each sta
 Check(patientAccess.Contains("Load generation is disabled"), "SQL load is opt-in");
 var illustration = await renderer.Dispatcher.InvokeAsync(async () => (await renderer.RenderComponentAsync<Scale>(
     ParameterView.FromDictionary(new Dictionary<string, object?> { ["ForceScripted"] = true }))).ToHtmlString());
+Check(illustration.Contains("class=\"app-clock\"") && illustration.Contains("<small>Today</small>"),
+    "The separate illustration retains its existing simulated time-of-day clock");
 Check(!illustration.Contains("scripted", StringComparison.OrdinalIgnoreCase)
     && !illustration.Contains("illustration", StringComparison.OrdinalIgnoreCase), "The recording screen has no scripted or illustration notices");
 Check(!illustration.Contains("not measured") && !illustration.Contains("Not Azure telemetry")
@@ -480,21 +519,52 @@ T DemoField<T>(string name, bool isStatic = false) =>
     (T)(typeof(Scale).GetField(name, System.Reflection.BindingFlags.NonPublic |
         (isStatic ? System.Reflection.BindingFlags.Static : System.Reflection.BindingFlags.Instance))?.GetValue(isStatic ? null : demoPage)
         ?? throw new Exception($"Missing demo timing field: {name}"));
-var demoRamp = new WorkloadRamp(DemoField<int>("workers"),
-    TimeSpan.FromSeconds(DemoField<int>("stepSeconds")), TimeSpan.FromSeconds(DemoField<int>("holdSeconds")),
-    TimeSpan.FromSeconds(DemoField<int>("stepDownSeconds")));
+var demoRamp = DemoField<WorkloadRamp>("RunRamp", true);
 demoRamp.Validate();
-Check(demoRamp.PeakAt == TimeSpan.FromSeconds(70) && demoRamp.Total == TimeSpan.FromSeconds(195)
-    && demoRamp.ActiveAt(TimeSpan.FromSeconds(71)) == 8 && demoRamp.ActiveAt(TimeSpan.FromSeconds(126)) == 7
-    && demoRamp.ActiveAt(TimeSpan.FromSeconds(186)) == 1 && demoRamp.ActiveAt(demoRamp.Total) == 0,
-    "Demo ramp reaches 8 workers in 70 s, holds 55 s, then steps down every 10 s to zero at 195 s");
+Check(demoRamp.PeakAt == TimeSpan.FromSeconds(45) && demoRamp.Total == TimeSpan.FromSeconds(165)
+    && demoRamp.Hold == TimeSpan.FromSeconds(60) && demoRamp.StepUp == demoRamp.StepDown
+    && demoRamp.WorkersPerStepDown == 2
+    && demoRamp.WorkerLevels.SequenceEqual([1, 2, 6, 10])
+    && Enumerable.Range(0, 12).Select(i => demoRamp.ActiveAt(TimeSpan.FromSeconds(i * 15)))
+        .SequenceEqual([1, 2, 6, 10, 10, 10, 10, 8, 6, 4, 2, 0]),
+    "Serverless Run holds 10 workers for 60 seconds then removes two every 15 seconds");
 Check(demoRamp.StartAt(0) == TimeSpan.Zero && demoRamp.ActiveAt(TimeSpan.Zero) == 1
-    && demoRamp.Total + DemoField<TimeSpan>("Cooldown", true) == TimeSpan.FromMinutes(4.5)
-    && DemoField<TimeSpan>("planned") == TimeSpan.FromMinutes(4.5),
-    "Demo starts its first worker immediately and totals four and a half minutes including cooldown, with no idle baseline");
+    && demoRamp.Total + DemoField<TimeSpan>("RunCooldown", true) == TimeSpan.FromSeconds(195)
+    && DemoField<TimeSpan>("planned") == TimeSpan.FromSeconds(195),
+    "Serverless Run starts one worker immediately and plans 195 seconds including trailing telemetry");
+Check(DemoField<TimeSpan>("RunCooldown", true) == TimeSpan.FromSeconds(30)
+    && DemoField<TimeSpan>("Cooldown", true) == TimeSpan.FromSeconds(75),
+    "The gradual Run does not change the separate post-resume observation");
+Check(Enumerable.Range(0, 10).All(i => demoRamp.StopAt(i) > demoRamp.StartAt(i))
+    && demoRamp.StartAt(1) == TimeSpan.FromSeconds(15)
+    && demoRamp.StartAt(2) == TimeSpan.FromSeconds(30) && demoRamp.StartAt(5) == TimeSpan.FromSeconds(30)
+    && demoRamp.StartAt(6) == TimeSpan.FromSeconds(45)
+    && demoRamp.StartAt(9) == TimeSpan.FromSeconds(45)
+    && demoRamp.StopAt(9) == TimeSpan.FromSeconds(105)
+    && demoRamp.StopAt(8) == TimeSpan.FromSeconds(105)
+    && demoRamp.StopAt(7) == TimeSpan.FromSeconds(120)
+    && demoRamp.StopAt(6) == TimeSpan.FromSeconds(120)
+    && demoRamp.StopAt(2) == TimeSpan.FromSeconds(150)
+    && demoRamp.StopAt(1) == TimeSpan.FromSeconds(165) && demoRamp.StopAt(0) == TimeSpan.FromSeconds(165),
+    "Explicit start levels and paired stops retain last-started-first stopping order");
+var mirroredDemoRamp = demoRamp with { WorkersPerStepDown = null };
+mirroredDemoRamp.Validate();
+Check(Enumerable.Range(0, 11).Select(i => mirroredDemoRamp.ActiveAt(TimeSpan.FromSeconds(i * 15)))
+        .SequenceEqual([1, 2, 6, 10, 10, 10, 10, 6, 2, 1, 0]),
+    "Explicit levels still reverse unchanged when no ramp-down group override is supplied");
+var oddGroupsRamp = demoRamp with { WorkersPerStepDown = 3 };
+oddGroupsRamp.Validate();
+Check(Enumerable.Range(0, 4).Select(i => oddGroupsRamp.ActiveAt(TimeSpan.FromSeconds(105 + i * 15)))
+        .SequenceEqual([7, 4, 1, 0]),
+    "An explicit-level ramp with an incomplete final stopping group stops the remaining worker");
 foreach (var invalid in new WorkloadRamp[] { new(0, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)),
     new(17, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)), new(8, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(60)),
-    new(8, TimeSpan.FromSeconds(30), TimeSpan.Zero), new(16, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)) })
+    new(8, TimeSpan.FromSeconds(30), TimeSpan.Zero), new(8, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(9)),
+    new(16, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)),
+    demoRamp with { WorkerLevels = [] }, demoRamp with { WorkerLevels = [1, 6, 2, 8] },
+    demoRamp with { WorkerLevels = [0, 2, 6, 8] }, demoRamp with { WorkerLevels = [1, 2, 6, 7] },
+    demoRamp with { WorkerLevels = [2, 6, 8] }, demoRamp with { WorkersPerStep = 2 },
+    demoRamp with { WorkersPerStepDown = 0 }, demoRamp with { WorkersPerStepDown = 17 } })
 {
     try
     {
@@ -522,6 +592,7 @@ Check((await playback.FindNextAsync("Cardiology", true)).Slots.All(s => s.SlotId
     "A booked playback slot leaves availability");
 
 await ResumeActivityChecks.RunAsync(Check, configuration);
+await SavedRunChecks.RunAsync(Check, configuration);
 await NetworkResourceChecks.RunAsync(Check, configuration);
 await PoolScaleChecks.RunAsync(Check, configuration);
 await PoolSchedulingChecks.RunAsync(Check, configuration);
