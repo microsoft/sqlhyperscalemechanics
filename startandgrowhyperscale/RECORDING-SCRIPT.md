@@ -20,8 +20,9 @@ Paste them into the same on-camera demo chat at the corresponding steps.
 
 ## Before you record (off camera)
 
-1. On the presenting machine, `az login` to `AzureSQL_bobward`
-   (`0efc44aa-c965-420f-aac4-fff305dbcc97`).
+1. Verify the currently signed-in Azure CLI user/subscription without switching.
+   Configure the subscription privately as described in [Run locally](README.md#run-locally);
+   never show subscription/tenant identifiers in the recording.
 2. Confirm the starting state. Scene 2 may reuse `caldova-network-rg` and
    `sql-caldova-start-0efc44` after confirmation and compatibility checks.
    For a fresh deployment, `caldova-scheduling` must not already exist on that
@@ -63,13 +64,15 @@ until it has had no connections for at least 60 minutes (Hyperscale minimum).
 
 Post-resume CPU observation includes the preceding 30 seconds of real DMV
 samples so the short burst can form a chart line promptly. A fresh page uses
-the 135-second baseline/activity/cooldown view; existing run samples remain
-retained with their actual timestamp gaps. SQL still publishes interval averages
+the 135-second baseline/activity/cooldown view, as does sign-in after an earlier
+Run. The focused plot excludes the old run so a long pause cannot squash the
+resume curve; original samples remain in the raw history with their actual
+timestamp gaps. SQL still publishes interval averages
 about every 15 seconds, so the chart is not instantaneous. The app checks for
 new samples every three seconds to avoid adding a full 15-second polling delay.
 The staff display uses actual worker observations at the displayed interval's
-midpoint, for both Run and post-resume activity. Interval start/end times are
-shown separately from the live elapsed clock. Do not narrate a delayed interval
+midpoint, for both Run and post-resume activity. The header has no elapsed
+clock. Do not narrate a delayed interval
 as instantaneous CPU, equate workers with cores, or promise an exact CPU
 staircase. Cut or time-compress the recording honestly; never replace samples.
 Patient rows and counters are captured with each half-second observation while
@@ -125,7 +128,7 @@ the databases are pooled.
 | 9 | **Beat 2.1 - Pool move.** In the same Copilot chat: "Integrate Caldova's acquired providers into the scheduling pool." Copilot shows the preview; confirm no SQL traffic; approve. Caldova leaves serverless; all three move into the pool (several minutes; time-lapse with disclosure). | Rehearse (preflight passed; not yet applied live) |
 | 10 | **Beat 2.2 - Network.** In the portal, open `caldova-network-pool`: three databases in the pool. Then app Step 3 (`/verify`): colored provider cards and fictional profiles sit inside one gold outline after all memberships are verified. Each shows actual database state and shared pool capacity. | Resource inspection implemented; does not prove SQL readiness. |
 | 11 | **Beat 2.3 - Scale.** App Step 4 (`/scale-presentation`): Run Scheduling & Grow. Show shared pool size and per-database min/max separately from uneven CPU demand, ending at twelve/seven/five in the 24-core model. Caldova's 20-to-30-GiB callout ends the scene. Scale Pool to 8/24 during activity illustrates sharing without restarting. | Growth-event ending previously rehearsed; revised limits/uneven-demand verification is tracked below. Real `/scale` proof remains separate. |
-| 12 | **Beat 2.5 - Search and book.** App Step 5 (`/appointments`): Cardiology local, then **Search the entire network**; show the provider-keyed LEFT JOIN view (no union); book a Ridgeview slot and leave the row visible as **Booked**; Pediatrics shows Northbrook. For a repeat take, the opted-in localhost host offers **Reset booking** beside that Booked row before a new search. | SQL setup, local network searches, and one real slot-8 booking verified. SQL confirmed only Ridgeview changed. Slot 8 was then reset with explicit approval; no other booking was reset. Persistent Booked-row and exact-receipt reset behavior have offline checks; the new reset button has not been exercised against live SQL. A fresh search still excludes booked slots. Deployed managed identity remains unverified. |
+| 12 | **Beat 2.5 - Search and book.** App Step 5 (`/appointments`): Cardiology local, then **Search the entire network**; show the provider-keyed LEFT JOIN view (no union) before the booking INSERT; book a Ridgeview slot and leave the row visible as **Booked**; Pediatrics shows Northbrook. The view panel precedes the booking SQL panel. For a repeat take, the opted-in localhost host offers **Reset booking** beside that Booked row before a new search. | SQL setup, local network searches, and one real slot-8 booking verified. SQL confirmed only Ridgeview changed. Slot 8 was then reset with explicit approval; no other booking was reset. Persistent Booked-row and exact-receipt reset behavior have offline checks; the new reset button has not been exercised against live SQL. A fresh search still excludes booked slots. Deployed managed identity remains unverified. |
 
 **Scene 11 presentation choice:** Use `/scale-presentation` with
 `PoolPresentation__Enabled=true` for the recording animation. It stops as soon

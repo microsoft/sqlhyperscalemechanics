@@ -13,6 +13,18 @@ public sealed record ServerlessMetric(DateTimeOffset At, double? CpuPercent, dou
 
 public sealed class ServerlessMonitor(HttpClient http, TokenCredential credential, IConfiguration configuration)
 {
+    public static string ResolveConfiguredResourceId(IConfiguration configuration, bool offline = false)
+    {
+        var resourceId = configuration["ServerlessMonitor:ResourceId"]
+            ?? throw new InvalidOperationException("ServerlessMonitor:ResourceId is required.");
+        if (!resourceId.Contains("{subscription-id}", StringComparison.Ordinal)) return resourceId;
+        if (offline) return resourceId.Replace("{subscription-id}", Guid.Empty.ToString("D"), StringComparison.Ordinal);
+        var configured = configuration["Azure:SubscriptionId"] ?? configuration["AZURE_SUBSCRIPTION_ID"];
+        if (!Guid.TryParse(configured, out var subscription) || subscription == Guid.Empty)
+            throw new InvalidOperationException("Configure Azure:SubscriptionId in local .NET user-secrets or AZURE_SUBSCRIPTION_ID in the environment. Do not publish the real identifier.");
+        return resourceId.Replace("{subscription-id}", subscription.ToString("D"), StringComparison.Ordinal);
+    }
+
     public string ResourceId => configuration["ServerlessMonitor:ResourceId"]
         ?? throw new InvalidOperationException("ServerlessMonitor:ResourceId is required.");
 

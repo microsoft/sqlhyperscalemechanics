@@ -1,6 +1,6 @@
 ---
 name: start-and-grow-hyperscale-demo
-description: 'Deploy, populate, verify, and operate Caldova Patient Access on Azure SQL Database Hyperscale. Use for "Help me deploy a database for Caldova Patient Access", "Populate the database we just deployed with the demo schema and data", "Prepare the resource group and Start logical server", "Reset Scene 2 for a fresh deployment", Caldova sizing or resource reuse, integrating acquired providers, adding or removing provider databases from the elastic pool, pool scaling, measured storage growth, native cross-database queries, or restoring Caldova serverless. Requires explicit approval for Azure changes.'
+description: 'Deploy, populate, verify, and operate Caldova Patient Access on Azure SQL Database Hyperscale. Use for "Help me deploy a database for Caldova Patient Access", "Populate the database we just deployed with the demo schema and data", "Prepare the resource group and Start logical server", "Reset Scene 2 for a fresh deployment", "Create the pool on the Start server", pool-only deployment, Caldova sizing or resource reuse, integrating acquired providers, adding or removing provider databases from the elastic pool, pool scaling, measured storage growth, native cross-database queries, or restoring Caldova serverless. Requires explicit approval for Azure changes.'
 ---
 
 # Start and Grow Hyperscale
@@ -55,6 +55,7 @@ Default targets, subject to configuration and live verification:
 | Purpose | Logical server | Database or pool |
 |---|---|---|
 | Start | `sql-caldova-start-0efc44` | `caldova-scheduling` |
+| Start pool rehearsal | `sql-caldova-start-0efc44` | `caldova-network-pool`; existing `northbrook-scheduling`, `ridgeview-scheduling` |
 | Grow | `sql-caldova-network-0efc44` | `caldova-scheduling`, `northbrook-scheduling`, `ridgeview-scheduling` |
 | Grow pool | `sql-caldova-network-0efc44` | `caldova-network-pool` |
 
@@ -176,31 +177,114 @@ billing, zero downtime, fixed resume duration, or measured cache warm-up.
 The read-only first-sign-in path can retry transient resume failures; that
 exception never permits replaying bookings or pool-scaling writes.
 
+## Create the pool on Start (pool-only deployment)
+
+For "Create the pool on the Start server" or a pool-creation rehearsal, target
+Start explicitly. Matching names on Grow are separate resources, not substitutes.
+The app remains connected to its existing targets; do not add environment UI or
+change app configuration for this deployment.
+
+1. Read configuration and
+   [the pool-only script](../../../startandgrowhyperscale/deploy/14-create-part1-pool.ps1).
+   Verify the current CLI subscription/user, existing Start server, Entra-only
+   authentication, TLS 1.2, and existing Allow Azure services through ARM only.
+   Never switch subscriptions, discover client IPs, add firewall rules, enable
+   previews, or create missing prerequisite databases as part of pool creation.
+   All three databases must already exist with compatible Hyperscale, local-backup,
+   non-zone-redundant settings and no membership in another pool.
+2. Verify supported Hyperscale pool capacity/limits against Microsoft Learn and
+   current Azure capabilities. Recommend the configured baseline: an empty
+   Hyperscale Gen5 pool, 8 total vCores, minimum 0 / maximum 8 per database,
+   no zone redundancy. Local backups remain database settings, not a pool-create
+   CLI parameter. Preserve server-level cross-database preview settings.
+3. Preview the exact target and plan:
+
+   ```powershell
+   .\startandgrowhyperscale\deploy\14-create-part1-pool.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf
+   ```
+
+   Show subscription display name, resource group, server, pool, compute/caps,
+   security retained, and exclusions. Ask for typed approval of pool creation
+   only. Never run `04-deploy-sql.ps1` here: it deploys Grow resources and a
+   client-IP firewall rule. Never repoint global Grow configuration to Start.
+4. After approval, run the same command without `-WhatIf`, synchronously.
+   An existing compatible pool is verified and reused, not called newly created.
+   Identity, tier, family, capacity, caps, readiness, or redundancy mismatches stop
+   without updating/recreating it. Authorization/read errors are not absence.
+   After an uncertain failure, inspect partial state before any new submission.
+5. Independently verify the exact Start pool is Ready, Hyperscale Gen5, 8 vCores,
+   caps 0-8, no zone redundancy, and empty when newly created. Report ARM results
+   separately from SQL/app readiness. No SQL connections, database moves,
+   population, app publishing, or Grow changes are included. Keep the three
+   databases and Caldova serverless unchanged.
+
+The pool-only script does not add members. If the request says "empty pool" or
+"do not move databases", stop after pool verification; do not surprise the user
+with a membership approval. If membership is requested afterward, use the
+explicit Start target below, never the default Grow target.
+
 ## Pool membership
 
 Use only [the membership script](../../../startandgrowhyperscale/deploy/06-set-pool-membership.ps1):
 
 ```powershell
+# Existing Grow workflow (default target preserved).
 .\startandgrowhyperscale\deploy\06-set-pool-membership.ps1 -Mode Pooled -WhatIf
+# Start recording/integration: pin this target explicitly.
+.\startandgrowhyperscale\deploy\06-set-pool-membership.ps1 -Target Start -ExpectedServerName sql-caldova-start-0efc44 -Mode Pooled -WhatIf
 ```
 
-Use `-Mode Standalone -WhatIf` for removal. Inspect current placement first.
+Use `-Mode Standalone -WhatIf` for removal, retaining the same target/server.
+Infer the target only from the explicit request or verified deployment in the
+same chat. If recording uses Start but subsequent app beats use the existing
+Grow pool, keep those contexts separate. Never redirect app settings or global
+Grow configuration to make a Start move work.
+Inspect all three current placements first, including interrupted operations.
 The pool must already exist and retain its preview enablement. Reject databases
 belonging to another pool. Do not recreate the pool or change preview settings.
 
-- **Pooled:** all three Grow databases join the existing pool; Grow Caldova
+- **Pooled:** all three databases on the approved server join its existing pool; Caldova
   leaves serverless for provisioned Hyperscale compute.
-- **Standalone:** restore Grow Caldova to `HS_S_Gen5_8`, minimum 1 vCore,
+- **Standalone:** restore Caldova on that server to `HS_S_Gen5_8`, minimum 1 vCore,
   auto-pause 60 minutes; Northbrook to `HS_Gen5_2`; Ridgeview to `HS_Gen5_4`.
   Verify current values in configuration.
 
-State actual compute, targets, and possible connection interruptions. Stop
-dependent SQL traffic and obtain approval before applying without `-WhatIf`.
-Moves are sequential, not atomic. On failure, inspect all three placements
-before finishing the same approved direction; do not automatically reverse it.
+State actual compute, target server/pool, all three database names, and possible
+connection interruptions. Confirm dependent SQL traffic is stopped before
+applying. One typed approval can authorize the complete named membership plan,
+including Caldova conversion and all three moves. After that approval, invoke
+the exact previewed command without `-WhatIf` and with `-Confirm:$false`; do not
+ask separately for each database or stop after the first one.
+Pool creation approval alone is not membership approval. If a user explicitly
+requests both, show both stages and all changes together for approval; execute
+pool creation first and the separately targeted membership script second.
+
+### Interrupted moves and delayed Azure readiness
+
+- Keep the synchronous command running until it completes or the user stops it.
+  After a tool timeout, read the same shell; never start another command for the
+  same operation or use `--no-wait`. Report concise progress without declaring
+  membership complete from an update response or one pooled database.
+- The script waits using ARM reads for conversion, pool removal, and each final
+  configuration (up to 30 minutes per phase), then verifies all three databases.
+  Delayed `Scaling`/`Resuming` states are observation, not permission to repeat
+  an update. No SQL probes or write retries are used.
+- On an error, show the per-database partial state and error. If state cannot be
+  read, report that explicitly; do not assume a database is absent or unchanged.
+  Preserve completed moves/conversion and never roll back, recreate the pool,
+  repopulate data, or grant permissions automatically.
+- Before continuing, inspect all three on the exact approved server. Wait for
+  any in-flight operation to settle. Rerunning the same target/direction skips
+  correct members and an already-completed Caldova conversion, finishing only
+  remaining changes. An unchanged valid approval covers the same plan after
+  state inspection, not a changed target/capacity or new operation. If the user
+  explicitly stopped or moved on, do not resume until they request continuation.
+
 Keep data, bookings, objects, identities, both servers, and the pool.
 Verify every database is Online in the requested placement before resuming SQL.
-ARM membership alone does not establish native cross-database SQL readiness.
+Only then report complete, listing all three names and states. Otherwise report
+partial/incomplete. ARM membership alone does not establish native cross-database
+SQL readiness.
 
 ## Pool scaling and storage growth
 
@@ -285,7 +369,7 @@ dotnet run --project .\startandgrowhyperscale\tests\CaldovaNetworkScheduling.Che
 For related script changes, run the corresponding mocked checks under
 `startandgrowhyperscale\deploy\tests`:
 `part1-lifecycle.tests.ps1`, `pool-membership.tests.ps1`,
-`pool-deployment.tests.ps1`, or `scheduling-network.tests.ps1`.
+`pool-deployment.tests.ps1`, `part1-pool.tests.ps1`, or `scheduling-network.tests.ps1`.
 New pool deployment must pass explicit min/max limits; reuse mismatches stop
 instead of changing or recreating a pool.
 

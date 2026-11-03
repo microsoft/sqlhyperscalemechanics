@@ -82,6 +82,9 @@ internal static class AppointmentBookingChecks
             await Invoke("SearchAsync");
             await Invoke("BookAsync", service.Remote);
             var markup = root.ToHtmlString();
+            check(markup.IndexOf("Behind the view", StringComparison.Ordinal) <
+                markup.IndexOf("Booking · one transaction", StringComparison.Ordinal),
+                "The native view SQL appears before the booking INSERT panel");
             check(service.BookCalls == 1 && service.SearchCalls == 1
                 && markup.Contains("Booked Ridgeview") && markup.Contains(">Booked</button>")
                 && System.Text.RegularExpressions.Regex.Matches(markup, "<tr>").Count == 3,

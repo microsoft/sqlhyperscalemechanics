@@ -66,12 +66,6 @@
     </section>
     <section class="panel"><h2>What the app runs</h2><pre class="code">@result.QueryText</pre></section>
 }
-@if (bookingQuery is not null)
-{
-    <section class="panel"><h2>Booking · one transaction, one write database</h2><pre class="code">@bookingQuery</pre>
-        <p>From the Caldova connection: update the slot and insert the appointment, both in the provider's database.
-            A transaction can write to only one database. A slot already taken produces no write.</p></section>
-}
 <details class="panel">
     <summary>Behind the view · native cross-database joins</summary>
     <pre class="code">@Availability.ViewDefinition</pre>
@@ -79,6 +73,12 @@
         Each join matches the provider key and clinic ID, so schedules are not multiplied or mixed.
         Each database checks the application's permissions.</p>
 </details>
+@if (bookingQuery is not null)
+{
+    <section class="panel"><h2>Booking · one transaction, one write database</h2><pre class="code">@bookingQuery</pre>
+        <p>From the Caldova connection: update the slot and insert the appointment, both in the provider's database.
+            A transaction can write to only one database. A slot already taken produces no write.</p></section>
+}
 
 @code {
     private string specialty = "Cardiology";

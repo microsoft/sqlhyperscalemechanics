@@ -43,7 +43,7 @@
 {
     <div class="callout callout-done">
         <strong>@(scripted ? "Scene complete." : "Clinic day complete.")</strong>
-        @(scripted ? "Busy morning, quiet midday, auto-pause, and back online for the afternoon clinic." : replaying ? "Staff activity complete." : "Workload finished. CPU readings retain their recorded intervals.")
+        @(scripted ? "Busy morning, quiet midday, auto-pause, and back online for the afternoon clinic." : "Staff activity complete.")
     </div>
 }
 @if (error is not null) { <p class="callout callout-error" role="alert">@error</p> }
@@ -58,11 +58,11 @@
                     <small>Caldova Health scheduling</small>
                 </div>
             </div>
-            @if (!replaying)
+            @if (scripted)
             {
                 <div class="app-clock">
-                    <small>@(scripted ? "Today" : "Elapsed")</small>
-                    <strong>@(scripted ? snap.SimulatedTime.ToString("h:mm tt", CultureInfo.InvariantCulture) : ElapsedTime)</strong>
+                    <small>Today</small>
+                    <strong>@snap.SimulatedTime.ToString("h:mm tt", CultureInfo.InvariantCulture)</strong>
                 </div>
             }
         </div>
@@ -266,6 +266,7 @@ else
     private RunPhase phase = RunPhase.Ready;
     private ServerlessConfiguration? database;
     private DateTimeOffset? runStart;
+    private DateTimeOffset? resumeChartStart;
     private DateTimeOffset? elapsedStart;
     private DateTimeOffset? elapsedEnd;
     private TimeSpan planned = RunRamp.Total + RunCooldown;
@@ -354,7 +355,7 @@ else
         };
 
     private static double RoundVCores(double value) => Math.Ceiling(value * 4) / 4;
-    private bool HistoricalCpu => !scripted && !replaying && !Busy && !resuming && samples.Count > 0
+    private bool HistoricalCpu => !scripted && !replaying && !Busy && !resuming && phase != RunPhase.Complete && samples.Count > 0
         && snap.Status != ServerlessStatus.Paused;
     private bool AwaitingCpu => replaying ? samples.Count == 0 : !scripted && Busy && samples.Count == 0;
     private double DisplayVCores => snap.Status == ServerlessStatus.Paused ? 0
@@ -421,7 +422,7 @@ else
         {
             var target = await Monitor.ReadConfigurationAsync(lifetime.Token);
             resumed = await Resume.SignInAsync(target, attempt => resumeAttempt = attempt, lifetime.Token);
-            // A sign-in after a finished run starts a new session; the run's chart samples are kept.
+            // Keep the raw history, but give the resumed activity its own chart window.
             if (phase is RunPhase.Complete or RunPhase.Stopped) phase = RunPhase.Ready;
             var current = await Monitor.ReadConfigurationAsync(lifetime.Token);
             armStatus = current.Status;
@@ -431,9 +432,9 @@ else
                 var previousSamples = samples.ToArray();
                 var activityStart = DateTimeOffset.UtcNow;
                 database = current;
-                runStart ??= activityStart.AddSeconds(-30);
-                if (previousSamples.Length == 0)
-                    planned = TimeSpan.FromSeconds(30) + ResumeActivity + Cooldown;
+                resumeChartStart = activityStart.AddSeconds(-30);
+                runStart ??= resumeChartStart;
+                planned = TimeSpan.FromSeconds(30) + ResumeActivity + Cooldown;
                 run?.Dispose();
                 run = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                 Workload.Start(current, ResumeWorkers, ResumeActivity);
@@ -530,6 +531,7 @@ else
         samples = [];
         database = null;
         runStart = null;
+        resumeChartStart = null;
         elapsedStart = null;
         elapsedEnd = null;
         scene.Reset();
@@ -715,7 +717,8 @@ else
     private IEnumerable<ScaleSample[]> Segments()
     {
         var current = new List<ScaleSample>();
-        var chartSamples = snap.Samples.Select(point => point with { VCores = RoundVCores(point.VCores) });
+        var chartSamples = snap.Samples.Where(point => resumeChartStart is null || point.ScriptSeconds >= ChartStartSeconds)
+            .Select(point => point with { VCores = RoundVCores(point.VCores) });
         foreach (var sample in chartSamples)
         {
             // Measured samples arrive about every 15 seconds; a larger gap is missing data, not zero.
@@ -730,7 +733,11 @@ else
     }
 
     private string Line(ScaleSample[] segment) => string.Join(' ', segment.Select(s => $"{F(SX(s.ScriptSeconds))},{F(SY(s.VCores))}"));
-    private double SX(double seconds) => Math.Clamp(seconds / snap.TotalScriptSeconds, 0, 1) * SW;
+    private double ChartStartSeconds => resumeChartStart is { } start && runStart is { } origin
+        ? (start - origin).TotalSeconds : 0;
+    private double ChartDurationSeconds => resumeChartStart is null ? snap.TotalScriptSeconds
+        : Math.Max(planned.TotalSeconds, snap.Samples.Count == 0 ? 0 : snap.Samples[^1].ScriptSeconds - ChartStartSeconds);
+    private double SX(double seconds) => Math.Clamp((seconds - ChartStartSeconds) / ChartDurationSeconds, 0, 1) * SW;
     private double SY(double value) => SH - value / (snap.MaxVCores * 1.15) * (SH - 4);
     private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
 

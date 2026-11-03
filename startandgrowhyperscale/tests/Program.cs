@@ -20,9 +20,34 @@ void Check(bool condition, string description)
 
 var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
 {
-    ["ServerlessMonitor:ResourceId"] = "/subscriptions/0efc44aa-c965-420f-aac4-fff305dbcc97/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/sql-caldova-network-0efc44/databases/caldova-scheduling",
+    ["ServerlessMonitor:ResourceId"] = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/sql-caldova-network-0efc44/databases/caldova-scheduling",
     ["ServerlessMonitor:EnableWorkload"] = "false"
 }).AddEnvironmentVariables().Build();
+var privateConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+{
+    ["ServerlessMonitor:ResourceId"] = "/subscriptions/{subscription-id}/resourceGroups/caldova-test-rg/providers/Microsoft.Sql/servers/sql-caldova-start-test/databases/caldova-scheduling",
+    ["Azure:SubscriptionId"] = "33333333-3333-3333-3333-333333333333"
+}).Build();
+Check(ServerlessMonitor.ResolveConfiguredResourceId(privateConfig).Contains("/subscriptions/33333333-3333-3333-3333-333333333333/")
+    && ServerlessMonitor.ResolveConfiguredResourceId(privateConfig).Contains("/servers/sql-caldova-start-test/"),
+    "Private subscription configuration resolves the public placeholder without changing the selected server");
+privateConfig["Azure:SubscriptionId"] = null;
+privateConfig["AZURE_SUBSCRIPTION_ID"] = "44444444-4444-4444-4444-444444444444";
+Check(ServerlessMonitor.ResolveConfiguredResourceId(privateConfig).Contains("/subscriptions/44444444-4444-4444-4444-444444444444/"),
+    "Environment subscription configuration also resolves the public placeholder");
+privateConfig["AZURE_SUBSCRIPTION_ID"] = null;
+Check(ServerlessMonitor.ResolveConfiguredResourceId(privateConfig, offline: true).Contains($"/subscriptions/{Guid.Empty:D}/"),
+    "Offline replay and synthetic playback do not require private Azure identifiers");
+foreach (var invalid in new[] { "", "invalid", Guid.Empty.ToString("D") })
+{
+    privateConfig["Azure:SubscriptionId"] = invalid;
+    var rejected = false;
+    try { ServerlessMonitor.ResolveConfiguredResourceId(privateConfig); }
+    catch (InvalidOperationException) { rejected = true; }
+    Check(rejected, "Live mode explicitly rejects missing or invalid private subscription configuration");
+}
+Check(ServerlessMonitor.ResolveConfiguredResourceId(configuration) == configuration["ServerlessMonitor:ResourceId"],
+    "An explicitly configured complete resource target remains unchanged");
 if (args.Contains("--pool-cli-check"))
 {
     var currentName = await new AzureCliRunner().RunAsync(
@@ -205,9 +230,9 @@ Check(patientAccess.Contains("data-vcores=\"1\" style=\"left:12.5%\"")
     && patientAccess.Contains("data-vcores=\"6\" style=\"left:75%\"")
     && patientAccess.Contains("data-vcores=\"8\" style=\"left:100%\""),
     "CPU gauge hash marks 1, 2, 6 and 8 are positioned by their numeric values rather than evenly spaced");
-Check(patientAccess.Contains("<small>Elapsed</small>") && patientAccess.Contains("00:00:00")
+Check(!patientAccess.Contains("class=\"app-clock\"") && !patientAccess.Contains("<small>Elapsed</small>")
     && patientAccess.Contains("Elapsed at interval end") && !patientAccess.Contains("UTC"),
-    "Measured page uses an elapsed clock and sample times instead of UTC");
+    "Measured page omits the header elapsed clock while retaining elapsed sample timestamps");
 foreach (var label in new[] { "MEASURED", "measured vCores", "Measured.", "illustrative", "synthetic", "Azure status", "SQL DMV", "not allocated", "Gaps are not" })
     Check(!patientAccess.Contains(label), $"Patient Access shows no '{label}' label");
 Check(!patientAccess.Contains("Next · Step 2"), "Serverless chapter ends independently");
@@ -216,6 +241,8 @@ Check(patientAccess.Contains("staff online") && patientAccess.Contains("Each sta
 Check(patientAccess.Contains("Load generation is disabled"), "SQL load is opt-in");
 var illustration = await renderer.Dispatcher.InvokeAsync(async () => (await renderer.RenderComponentAsync<Scale>(
     ParameterView.FromDictionary(new Dictionary<string, object?> { ["ForceScripted"] = true }))).ToHtmlString());
+Check(illustration.Contains("class=\"app-clock\"") && illustration.Contains("<small>Today</small>"),
+    "The separate illustration retains its existing simulated time-of-day clock");
 Check(!illustration.Contains("scripted", StringComparison.OrdinalIgnoreCase)
     && !illustration.Contains("illustration", StringComparison.OrdinalIgnoreCase), "The recording screen has no scripted or illustration notices");
 Check(!illustration.Contains("not measured") && !illustration.Contains("Not Azure telemetry")

@@ -321,6 +321,11 @@ internal static class SavedRunChecks
             check(endingFrame.Scene.ActiveUsers == 0 && onlineText.StartsWith("0", StringComparison.Ordinal)
                 && onlineText.Contains("staff online"),
                 "The left staff header returns to the real zero staff count once measured CPU reaches zero");
+            check(endingHtml.Contains("Staff activity complete.") && endingHtml.Contains("Everyone has signed out")
+                && endingHtml.Contains("Live schedule") && endingHtml.Contains("vCores in use (CPU)")
+                && !endingHtml.Contains("Recorded schedule") && !endingHtml.Contains("last CPU used")
+                && !endingHtml.Contains("class=\"app-clock\""),
+                "The completed presentation keeps matching staff, schedule, CPU, and completion labels without an elapsed clock");
         }
     }
 

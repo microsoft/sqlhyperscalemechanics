@@ -28,6 +28,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 var demoMode = builder.Configuration["Demo:Mode"] ?? "Measured";
 var serverlessRecording = ServerlessRecordingSettings.Read(builder.Configuration, builder.Environment.ContentRootPath);
+builder.Configuration["ServerlessMonitor:ResourceId"] = ServerlessMonitor.ResolveConfiguredResourceId(
+    builder.Configuration, serverlessRecording.IsReplay || builder.Configuration.GetValue<bool>("Demo:Playback"));
 PoolScaler.ValidateHost(builder.Configuration);
 if (!string.Equals(demoMode, "Measured", StringComparison.OrdinalIgnoreCase))
 {

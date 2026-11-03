@@ -202,10 +202,9 @@ mean the last recorded CPU value was zero.
 The presentation omits the CPU interval/staff explanation line; raw samples
 remain available behind the chart. Keep the sign-out phase until measured CPU
 reaches zero before saying everyone has signed out. During live capture,
-elapsed time and Stop remain current. The live elapsed clock freezes when
-activity completes, stops, or fails, instead of counting subsequent idle time.
-Replay hides the header elapsed clock
-and starts at zero while CPU is pending, without adding a chart point.
+Stop remains current. Both live and replay omit the header elapsed clock;
+internal elapsed tracking and raw sample times remain available. Replay
+starts at zero while CPU is pending, without adding a chart point.
 A transition can straddle a CPU interval. The 1/2/6/10 sequence
 is worker load against an eight-vCore database cap, not CPU-used vCores.
 Post-resume activity retains its separate 75-second observation.

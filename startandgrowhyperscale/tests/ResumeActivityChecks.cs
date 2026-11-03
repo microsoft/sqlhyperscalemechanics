@@ -11,6 +11,7 @@ internal static class ResumeActivityChecks
         CheckIntervalAlignment(check);
         CheckPatientActivityAlignment(check);
         CheckLiveElapsedClock(check);
+        CheckCompletedLiveScene(check);
         await CheckRunControlsAsync(check, configuration);
         foreach (var scenario in new[] { "enabled", "fresh", "disabled", "failed" })
         {
@@ -25,9 +26,11 @@ internal static class ResumeActivityChecks
             Set(page, "Telemetry", new Telemetry(configuration));
             Set(page, "Logger", NullLogger<Scale>.Instance);
             var oldSample = new ServerlessCpuSample(DateTimeOffset.UtcNow.AddHours(-2), 50, 8);
+            var oldSamples = new[] { oldSample with { At = oldSample.At.AddSeconds(-30) },
+                oldSample with { At = oldSample.At.AddSeconds(-15) }, oldSample };
             if (scenario != "fresh")
             {
-                Field("samples").SetValue(page, new[] { oldSample });
+                Field("samples").SetValue(page, oldSamples);
                 Field("runStart").SetValue(page, oldSample.At.AddMinutes(-1));
                 Field("elapsedStart").SetValue(page, oldSample.At.AddMinutes(-1));
                 Field("elapsedEnd").SetValue(page, oldSample.At);
@@ -48,15 +51,14 @@ internal static class ResumeActivityChecks
                         "A successful sign-in starts exactly four workers for 30 seconds");
                     var samples = (IReadOnlyList<ServerlessCpuSample>)Field("samples").GetValue(page)!;
                     check(scenario == "fresh" ? samples.Count == 2 :
-                        samples.Count == 3 && samples[0] == oldSample && samples[1].At > oldSample.At.AddHours(1),
-                        "Resume observation preserves the earlier chart and the real gap without filling it");
+                        samples.Count == 5 && samples.Take(3).SequenceEqual(oldSamples) && samples[3].At > oldSample.At.AddHours(1),
+                        "Resume observation retains original raw history and the real gap without filling it");
                     check(samples[^2].CpuPercent == 0 && samples[^1].CpuPercent > 0
                         && samples[^1].At - samples[^2].At == TimeSpan.FromSeconds(15),
                         "A real baseline and rising CPU sample form a visible segment for the short resume burst");
-                    if (scenario == "fresh")
-                        check((TimeSpan)Field("planned").GetValue(page)! == TimeSpan.FromSeconds(135)
-                            && (DateTimeOffset)Field("runStart").GetValue(page)! <= DateTimeOffset.UtcNow.AddSeconds(-30),
-                            "A fresh resume chart includes the real baseline and uses the short activity timeline");
+                    check((TimeSpan)Field("planned").GetValue(page)! == TimeSpan.FromSeconds(135)
+                        && (DateTimeOffset)Field("resumeChartStart").GetValue(page)! <= DateTimeOffset.UtcNow.AddSeconds(-30),
+                        "Both fresh and existing pages focus resume on the 135-second baseline/activity/cooldown window");
                     check(Field("phase").GetValue(page)!.ToString() == "Load", "Resume activity enters the normal measured load phase");
                     check(Field("elapsedEnd").GetValue(page) is null,
                         "A new resume activity unfreezes the elapsed clock without changing its origin");
@@ -65,6 +67,21 @@ internal static class ResumeActivityChecks
                         .GetMethod("Segments", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null)!;
                     check(segments.Cast<Array>().Any(segment => segment.Length >= 2),
                         "The actual chart emits a drawable segment during post-resume observation");
+                    var plotted = segments.Cast<CaldovaNetworkScheduling.Models.ScaleSample[]>().ToArray();
+                    var chartStart = (double)typeof(Scale).GetProperty("ChartStartSeconds", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!;
+                    var sx = typeof(Scale).GetMethod("SX", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                    var latestSegment = plotted[^1];
+                    check((double)sx.Invoke(page, [chartStart])! == 0
+                        && Math.Abs((double)sx.Invoke(page, [chartStart + 135])! - 300) < 0.000001
+                        && (double)sx.Invoke(page, [latestSegment[^1].ScriptSeconds])!
+                            - (double)sx.Invoke(page, [latestSegment[0].ScriptSeconds])! >= 30,
+                        "A 15-second resume rise spans at least 30 of 300 chart pixels, even after a two-hour pause");
+                    var chartSnapshot = (CaldovaNetworkScheduling.Models.ScaleSnapshot)Field("snap").GetValue(page)!;
+                    check(plotted.SelectMany(segment => segment).All(point => point.ScriptSeconds >= chartStart)
+                        && chartSnapshot.Samples.Count == samples.Count
+                        && (scenario == "fresh" || chartSnapshot.Samples[0].ScriptSeconds
+                            == (oldSamples[0].At - (DateTimeOffset)Field("runStart").GetValue(page)!).TotalSeconds),
+                        "The focused resume plot excludes old segments without removing or retiming the original samples");
                     var rawSamples = new[] { samples[^2], samples[^1] with { CpuPercent = 3.25 } };
                     Field("samples").SetValue(page, rawSamples);
                     typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
@@ -123,12 +140,51 @@ internal static class ResumeActivityChecks
             && (string)typeof(Scale).GetMethod("ActivityTime", BindingFlags.NonPublic | BindingFlags.Instance)!
                 .Invoke(clockPage, [activity])! == "00:00:20",
             "Schedule event times retain their UTC date internally but display elapsed time from Run");
+        Field("resumeChartStart").SetValue(clockPage, origin);
         typeof(Scale).GetMethod("ResetMeasured", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(clockPage, null);
         check(Field("elapsedStart").GetValue(clockPage) is null && Field("elapsedEnd").GetValue(clockPage) is null
+            && Field("resumeChartStart").GetValue(clockPage) is null
             && (string)typeof(Scale).GetProperty("ElapsedTime", BindingFlags.NonPublic | BindingFlags.Instance)!
                 .GetValue(clockPage)! == "00:00:00",
             "Reset returns the elapsed clock to zero");
         ((CancellationTokenSource)Field("lifetime").GetValue(clockPage)!).Dispose();
+    }
+
+    private static void CheckCompletedLiveScene(Action<bool, string> check)
+    {
+        var page = CreatePage();
+        var origin = DateTimeOffset.UtcNow.AddMinutes(-4);
+        var sample = new ServerlessCpuSample(origin.AddSeconds(75), 0, 8);
+        var scene = (MeasuredClinicScene)Field("scene").GetValue(page)!;
+        scene.Observe(origin, new(true, 10, 0, 0, origin, null, null, 1));
+        scene.Observe(origin.AddSeconds(60), new(false, 10, 100, 0, origin, origin.AddSeconds(60), null, 0));
+        Field("runStart").SetValue(page, origin);
+        Field("elapsedStart").SetValue(page, origin);
+        Field("samples").SetValue(page, new[] { sample });
+        Field("phase").SetValue(page, Enum.Parse(Field("phase").FieldType, "Complete"));
+        var refresh = typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        try
+        {
+            refresh.Invoke(page, null);
+            var snapshot = (CaldovaNetworkScheduling.Models.ScaleSnapshot)Field("snap").GetValue(page)!;
+            check(snapshot.IsComplete && snapshot.ActiveUsers == 0 && snapshot.VCores == 0
+                && (string)typeof(Scale).GetProperty("Readout", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)! == "0.00"
+                && (string)typeof(Scale).GetProperty("StatusDetail", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)! == "Everyone has signed out",
+                "A completed live scene matches replay's zero staff, zero CPU, and signed-out ending");
+            check(!(bool)typeof(Scale).GetProperty("HistoricalCpu", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!,
+                "Completed live and replay use the same schedule heading and CPU label, unlike an interrupted run");
+            Field("armStatus").SetValue(page, "Paused");
+            refresh.Invoke(page, null);
+            check(((CaldovaNetworkScheduling.Models.ScaleSnapshot)Field("snap").GetValue(page)!).Status
+                == CaldovaNetworkScheduling.Models.ServerlessStatus.Paused
+                && (string)typeof(Scale).GetProperty("StatusDetail", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!
+                    == "Paused · no compute charges",
+                "The completed live scene can still transition to verified Azure pause without another SQL run");
+        }
+        finally
+        {
+            ((CancellationTokenSource)Field("lifetime").GetValue(page)!).Dispose();
+        }
     }
 
     private static void CheckLiveElapsedClock(Action<bool, string> check)
