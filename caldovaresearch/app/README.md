@@ -1,6 +1,6 @@
 # Caldova
 
-Caldova is the stage application for the Demo 2 thesis:
+Caldova is the stage application for the Mission-Critical, at Any Scale demo:
 
 > Start small. Scale without re-architecting.
 
@@ -13,7 +13,7 @@ while a server-side allowlist chooses the compatible table and query profile.
 1. The question is sent to the embedding service, which returns 512 L2-normalized
    `float32` values.
 2. That vector and the raw question are passed to the selected retrieval query.
-3. The 4K target runs up to two retrievals and fuses them:
+3. The 3K target runs up to two retrievals and fuses them:
    - **Vector** — approximate nearest neighbour over the DiskANN cosine index.
    - **Keyword** — `FREETEXTTABLE` over the full-text index.
    - **Hybrid** — both, combined with reciprocal rank fusion (k = 60).
@@ -48,7 +48,7 @@ substitutes a presentation count.
 
 | Key | UI label | Database table | Search profile | Verified state |
 |---|---|---|---|---|
-| `small` | `4K` | `dbo.pmc_chunks` on the pilot | Hybrid | 4,076 passages, ready |
+| `small` | `3K` | `dbo.pmc_chunks` on the pilot | Hybrid | 2,834 passages, ready |
 | `million` | `1M` by default | `dbo.pmc_chunks_1M` or `dbo.pmc_chunks_demo` | Vector | Primary demo target |
 | `replica` | `Named Replica` | Same demo table as `million` | Vector | Read-only compute |
 

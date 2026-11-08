@@ -1,9 +1,9 @@
-# Demo 2: Mission-Critical, at Any Scale
+# Caldova Research: Mission-Critical, at Any Scale
 
 **Slide title:** Start small. Scale without re-architecting.
 
 An evidence search application over a PMC corpus in Azure SQL Hyperscale. It runs the
-same application contract against a 4K serverless pilot and against primary and
+same application contract against a 3K serverless pilot and against primary and
 named-replica targets at 1M rows.
 
 ## A note on scale
@@ -46,7 +46,7 @@ which is what makes the similarity meaningful.
 > stored vectors exactly (cosine 1.000000). `potion-retrieval-32M` scores 0.48–0.67 against
 > the same rows, so it is a different vector space and must not be used for queries.
 
-Three retrieval modes ship for the 4K pilot:
+Three retrieval modes ship for the 3K pilot:
 
 | Mode | What it does |
 |---|---|
@@ -79,7 +79,7 @@ the round-trip number.
 
 | UI label | Environment key | What it is | State |
 |---|---|---|---|
-| `4K` | `small` | Serverless Hyperscale pilot | 4,076 passages, hybrid ready |
+| `3K` | `small` | Serverless Hyperscale pilot | 2,834 passages, hybrid ready |
 | `1M` | `million` | Primary demo target | Indexed 1M table |
 | `Named Replica` | `replica` | Read-only compute over the demo table | Same 1M table |
 
@@ -116,7 +116,7 @@ app/            React client + Express API (search, readiness)
 embedding/      FastAPI service running the corpus embedding model
 database/       Schema, corpus export and load, search SQL, retrieval evaluation
 workload/       Scheduled job that exercises auto-pause and resume
-staging/        Curated corpus package with its original embeddings
+staging/        Curated CC BY corpus package with its original embeddings (see ../THIRD-PARTY-NOTICES.md)
 deploy/         Container Apps definition (API + embedding in one replica)
 fabric-app/     Rayfin static hosting configuration
 docs/           Stage script
@@ -129,7 +129,7 @@ hardcoded. See [app/.env.example](app/.env.example) for the full list.
 
 | Variable | Purpose |
 |---|---|
-| `AZURE_SQL_SMALL_SERVER` / `_DATABASE` | The 4K serverless pilot |
+| `AZURE_SQL_SMALL_SERVER` / `_DATABASE` | The 3K serverless pilot |
 | `AZURE_SQL_LARGE_SERVER` / `_DATABASE` | The primary holding the 1M table |
 | `AZURE_SQL_REPLICA_SERVER` / `_DATABASE` | The named replica |
 | `CALDOVA_DEMO_SCALE` | `10K`, `100K`, or `1M` (default) |

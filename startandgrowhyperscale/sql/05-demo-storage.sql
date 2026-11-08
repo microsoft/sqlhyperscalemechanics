@@ -67,9 +67,10 @@ BEGIN
     SELECT @inserted;
 END;
 GO
-IF EXISTS (SELECT 1 FROM sys.database_principals WHERE name=N'app-caldova-network-0efc44')
+-- $(AppName) is the App Service name; the app substitutes it from private configuration before running this file.
+IF EXISTS (SELECT 1 FROM sys.database_principals WHERE name=N'$(AppName)')
 BEGIN
-    GRANT SELECT ON OBJECT::demo.StorageSize TO [app-caldova-network-0efc44];
-    GRANT EXECUTE ON OBJECT::demo.FillStorageBatch TO [app-caldova-network-0efc44];
+    GRANT SELECT ON OBJECT::demo.StorageSize TO [$(AppName)];
+    GRANT EXECUTE ON OBJECT::demo.FillStorageBatch TO [$(AppName)];
 END;
 GO

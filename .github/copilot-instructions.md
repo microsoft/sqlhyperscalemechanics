@@ -1,19 +1,3 @@
-# Chat interaction
-
-- Use normal chat, not dialog boxes, choice boxes, questionnaires, `ask_user`,
-  or `askQuestions`, for requirements, recommendations, or approvals.
-- Present one recommended plan with explicit assumptions rather than a menu
-  of options. If essential information is missing, explain the blocker in chat.
-- For changes requiring approval, show the exact plan and wait for the user to
-  type approval. Do not replace approval with a form or infer it from "next".
-- These preferences do not bypass tool-permission controls.
-
-# Opening the app
-
-- When asked to load, run, open, or relaunch the app, verify it is reachable,
-  then open it in a separate standalone Microsoft Edge window (`msedge.exe --app=<URL>`).
-- Never use the VS Code integrated browser or Simple Browser for these requests.
-
 # Azure identifier privacy
 
 - Do not display subscription IDs or tenant IDs in chat, plans, summaries,
@@ -36,3 +20,4 @@
   Preserve their server-level cross-database preview settings.
 - Scene 2 reset deletes only the explicitly approved Start database. Keep all
   databases on the network server, both logical servers, and the pool.
+- Get explicit typed approval in chat before any Azure change.

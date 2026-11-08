@@ -25,10 +25,12 @@ if (args is ["--rehearse-pool"])
     return;
 }
 var builder = WebApplication.CreateBuilder(args);
+DemoResourceNames.AddLocalSettings(builder.Configuration, builder.Environment);
 
 var demoMode = builder.Configuration["Demo:Mode"] ?? "Measured";
 var demoPlayback = builder.Configuration.GetValue<bool>("Demo:Playback");
 var serverlessRecording = ServerlessRecordingSettings.Read(builder.Configuration, builder.Environment.ContentRootPath);
+DemoResourceNames.Apply(builder.Configuration, serverlessRecording.IsReplay || demoPlayback);
 builder.Configuration["ServerlessMonitor:ResourceId"] = ServerlessMonitor.ResolveConfiguredResourceId(
     builder.Configuration, serverlessRecording.IsReplay || demoPlayback);
 PoolScaler.ValidateHost(builder.Configuration);

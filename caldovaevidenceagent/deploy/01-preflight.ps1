@@ -47,7 +47,7 @@ foreach ($namespace in $requiredProviders) {
 Write-Step 'Curated corpus integrity'
 $manifestPath = Join-Path $CorpusPath 'manifest.json'
 if (-not (Test-Path $manifestPath)) {
-    throw "Corpus manifest not found at $manifestPath. Copy the text-only Demo 2 corpus before running pre-flight."
+    throw "Corpus manifest not found at $manifestPath. Restore the text-only curated corpus before running pre-flight."
 }
 $manifest = Get-Content -Raw $manifestPath | ConvertFrom-Json
 foreach ($sectionName in @('documents', 'chunks')) {
@@ -60,13 +60,13 @@ foreach ($sectionName in @('documents', 'chunks')) {
     }
     Write-Ok "$($section.path): $($section.rows) rows, SHA-256 verified"
 }
-if ($manifest.documents.rows -ne 44 -or $manifest.chunks.rows -ne 4076) {
-    throw "Expected 44 documents and 4,076 chunks; manifest reports $($manifest.documents.rows) and $($manifest.chunks.rows)."
+if ($manifest.documents.rows -ne 30 -or $manifest.chunks.rows -ne 2834) {
+    throw "Expected 30 documents and 2,834 chunks; manifest reports $($manifest.documents.rows) and $($manifest.chunks.rows)."
 }
-if (@($manifest.coverage).Count -ne 15) {
-    throw "Expected 15 retrieval evaluation questions; found $(@($manifest.coverage).Count)."
+if (@($manifest.coverage).Count -ne 14) {
+    throw "Expected 14 retrieval evaluation questions; found $(@($manifest.coverage).Count)."
 }
-Write-Ok '44 articles, 4,076 passages, and 15 evaluation questions'
+Write-Ok '30 articles, 2,834 passages, and 14 evaluation questions'
 
 Write-Step "Azure SQL offering in $PreferredLocation"
 $editions = Invoke-AzJson @('sql', 'db', 'list-editions', '--subscription', $ExpectedSubscriptionId,

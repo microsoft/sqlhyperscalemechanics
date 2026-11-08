@@ -54,10 +54,31 @@ Default targets, subject to configuration and live verification:
 
 | Purpose | Logical server | Database or pool |
 |---|---|---|
-| Start | `sql-caldova-start-0efc44` | `caldova-scheduling` |
-| Start pool rehearsal | `sql-caldova-start-0efc44` | `caldova-network-pool`; existing `northbrook-scheduling`, `ridgeview-scheduling` |
-| Grow | `sql-caldova-network-0efc44` | `caldova-scheduling`, `northbrook-scheduling`, `ridgeview-scheduling` |
-| Grow pool | `sql-caldova-network-0efc44` | `caldova-network-pool` |
+| Start | `<start-server>` | `caldova-scheduling` |
+| Start pool rehearsal | `<start-server>` | `caldova-network-pool`; existing `northbrook-scheduling`, `ridgeview-scheduling` |
+| Grow | `<network-server>` | `caldova-scheduling`, `northbrook-scheduling`, `ridgeview-scheduling` |
+| Grow pool | `<network-server>` | `caldova-network-pool` |
+
+Public files never contain the live server or app names. `<start-server>`,
+`<network-server>`, and `<network-app>` stand for `sql-caldova-start-<suffix>`,
+`sql-caldova-network-<suffix>`, and `app-caldova-network-<suffix>`.
+`00-config.ps1` derives `<suffix>` from the current subscription unless
+`CALDOVA_PART1_SQL_SERVER`, `CALDOVA_NETWORK_SQL_SERVER`, or
+`CALDOVA_NETWORK_APP_NAME` override the names. Before planning, resolve the
+servers read-only in the resource group by name prefix:
+
+```powershell
+az sql server list --resource-group caldova-network-rg --query "[?starts_with(name, 'sql-caldova-')].{name:name, location:location}" --output table
+```
+
+Expect exactly one `sql-caldova-start-*` and one `sql-caldova-network-*`
+server, and confirm each matches the name `00-config.ps1` computes
+(`$Part1SqlServerName`, `$SqlServerName`). If none, several, or mismatched
+names are found, stop and explain the conflict; never guess or substitute one
+server for the other. Use the resolved names in plans and `-ExpectedServerName`
+arguments. The local app reads the same names from git-ignored
+`startandgrowhyperscale/app/appsettings.Local.json`; see the README section
+"Private local configuration".
 
 Both servers use `caldova-network-rg`. The same database name on two servers
 does not identify the same database. Start deployment must not alter Grow.
@@ -72,8 +93,8 @@ Recognize this request without requiring a product recommendation in the prompt:
 > morning, with nights and weekends idle. We need automatic compute scaling,
 > low idle cost, and room to grow without sizing storage. A short wake-up
 > delay is fine. Use the currently logged-in Azure user and subscription,
-> resource group `caldova-network-rg`, and existing server
-> `sql-caldova-start-0efc44`. Recommend a configuration, state assumptions,
+> resource group `caldova-network-rg`, and the existing Start server
+> (`sql-caldova-start-*`) in it. Recommend a configuration, state assumptions,
 > and show the plan for approval before deploying.
 
 1. Verify the current CLI account and signed-in Entra user internally. Inspect
@@ -200,7 +221,7 @@ change app configuration for this deployment.
 3. Preview the exact target and plan:
 
    ```powershell
-   .\startandgrowhyperscale\deploy\14-create-part1-pool.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf
+   .\startandgrowhyperscale\deploy\14-create-part1-pool.ps1 -ExpectedServerName <start-server> -WhatIf
    ```
 
    Show subscription display name, resource group, server, pool, compute/caps,
@@ -231,7 +252,7 @@ Use only [the membership script](../../../startandgrowhyperscale/deploy/06-set-p
 # Existing Grow workflow (default target preserved).
 .\startandgrowhyperscale\deploy\06-set-pool-membership.ps1 -Mode Pooled -WhatIf
 # Start recording/integration: pin this target explicitly.
-.\startandgrowhyperscale\deploy\06-set-pool-membership.ps1 -Target Start -ExpectedServerName sql-caldova-start-0efc44 -Mode Pooled -WhatIf
+.\startandgrowhyperscale\deploy\06-set-pool-membership.ps1 -Target Start -ExpectedServerName <start-server> -Mode Pooled -WhatIf
 ```
 
 Use `-Mode Standalone -WhatIf` for removal, retaining the same target/server.
@@ -342,7 +363,7 @@ For "Reset Scene 2 for a fresh deployment", first stop dependent Start traffic
 and preview deletion of only the explicitly named Start database:
 
 ```powershell
-.\startandgrowhyperscale\deploy\10-reset-part1.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf
+.\startandgrowhyperscale\deploy\10-reset-part1.ps1 -ExpectedServerName <start-server> -WhatIf
 ```
 
 Explain loss of Start schema/data/bookings and preservation of both servers,

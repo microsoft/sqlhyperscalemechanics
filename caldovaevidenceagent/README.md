@@ -10,7 +10,7 @@ The system combines:
 - A formal, versioned Foundry Agent Skill
 - A React and Express application hosted on Azure App Service
 
-The curated public corpus contains 44 PubMed Central articles and 4,076 passages. It contains no patient data and no precomputed vectors; deployment generates fresh 512-dimensional embeddings inside Azure SQL.
+The curated public corpus contains 30 CC BY-licensed PubMed Central open access articles and 2,834 passages. It contains no patient data and no precomputed vectors; deployment generates fresh 512-dimensional embeddings inside Azure SQL. See [corpus attribution](../THIRD-PARTY-NOTICES.md) for article credits and licenses.
 
 ## Architecture
 

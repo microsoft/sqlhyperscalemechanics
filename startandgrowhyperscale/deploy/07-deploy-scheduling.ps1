@@ -14,8 +14,8 @@ if ($Phase -eq 'Storage') {
 }
 Import-Module SqlServer -ErrorAction Stop
 
-if ($AppName -ne 'app-caldova-network-0efc44' -or $CaldovaDatabase -ne 'caldova-scheduling') {
-    throw 'The SQL files name the current Caldova databases and app identity explicitly. Review them before deploying to a different environment.'
+if ($AppName -notmatch '^app-caldova-network-[a-z0-9-]+$' -or $AppName.Length -gt 60 -or $CaldovaDatabase -ne 'caldova-scheduling') {
+    throw 'The SQL files name the Caldova databases explicitly and receive the app identity as SQLCMD variable AppName. Review them before deploying to a different environment.'
 }
 
 $databaseNames = @($CaldovaDatabase) + @($AcquiredDatabases | ForEach-Object { $_.Name })
@@ -50,7 +50,7 @@ if ($Phase -ne 'Schema') {
 
 switch ($Phase) {
     'Schema' {
-        Invoke-SchedulingFile 'master' '00-app-login.sql'
+        Invoke-SchedulingFile 'master' '00-app-login.sql' -Variables @("AppName=$AppName")
         foreach ($name in $databaseNames) {
             Invoke-SchedulingFile $name '01-scheduling-schema.sql'
         }
@@ -60,14 +60,14 @@ switch ($Phase) {
         $token = Invoke-Az @('account', 'get-access-token', '--subscription', $SubscriptionId,
             '--resource', 'https://database.windows.net/', '--output', 'json')
         $login = Invoke-Sqlcmd -ServerInstance $SqlServerFqdn -Database 'master' -AccessToken $token.accessToken `
-            -Query "SELECT CONVERT(varchar(172), sid, 1) AS AppLoginSid FROM sys.server_principals WHERE name = N'app-caldova-network-0efc44';" `
+            -Query "SELECT CONVERT(varchar(172), sid, 1) AS AppLoginSid FROM sys.server_principals WHERE name = N'$AppName';" `
             -ConnectionTimeout 90 -QueryTimeout 120 -Encrypt Mandatory -AbortOnError -ErrorAction Stop
         if ($null -eq $login -or $login.AppLoginSid -notmatch '^0x[0-9a-fA-F]{32}$') {
             throw 'The expected app login must exist in master with a valid SID before deploying the network view.'
         }
         Invoke-SchedulingFile $CaldovaDatabase '02-network-view.sql'
         foreach ($name in $databaseNames) {
-            Invoke-SchedulingFile $name '03-app-permissions.sql' -Variables @("AppLoginSid=$($login.AppLoginSid)")
+            Invoke-SchedulingFile $name '03-app-permissions.sql' -Variables @("AppLoginSid=$($login.AppLoginSid)", "AppName=$AppName")
         }
     }
     'Verify' {

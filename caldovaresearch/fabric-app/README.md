@@ -45,7 +45,7 @@ absolute API, and the API only accepts cross-origin calls from origins named in
 2. Build the client against the deployed API:
 
    ```bash
-   cd demo2-mission-critical/app
+   cd caldovaresearch/app
    VITE_API_BASE_URL=https://<api-host> npm run build
    ```
 

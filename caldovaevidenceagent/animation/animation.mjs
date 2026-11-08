@@ -34,7 +34,7 @@ export const retrievalTiming = {
 };
 export const nodes = {
   corpus: { x: 1405, y: 175, w: 430, h: 172, color: colors.teal, icon: 'skill',
-    title: ['Article passages'], body: ['44 PubMed Central articles', '4,076 passages'] },
+    title: ['Article passages'], body: ['30 PubMed Central articles', '2,834 passages'] },
   app: { x: 85, y: 435, w: 300, h: 176, color: colors.teal, icon: 'app',
     title: ['Caldova Evidence App'], body: ['Evidence investigation'] },
   agent: { x: 515, y: 435, w: 340, h: 176, color: colors.purple, icon: 'agent',
@@ -50,7 +50,7 @@ export const nodes = {
   embedding: { x: 985, y: 785, w: 290, h: 162, color: colors.blue, icon: 'vector',
     title: ['text-embedding-3-small'], body: ['Azure OpenAI', '512 dimensions'] },
   sql: { x: 1405, y: 715, w: 430, h: 260, color: colors.green, icon: 'database',
-    title: ['Azure SQL Hyperscale'], body: ['research | 4,076 stored passage vectors'] },
+    title: ['Azure SQL Hyperscale'], body: ['research | 2,834 stored passage vectors'] },
 };
 export const indexPanel = { x: 1427, y: 852, w: 386, h: 103 };
 const corpusPath = [[1835, 261], [1870, 261], [1870, 866], [1835, 866]];

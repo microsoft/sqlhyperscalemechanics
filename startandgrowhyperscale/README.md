@@ -98,7 +98,7 @@ approval guard; its live workload and growth have not been run for this change.
 [13-rehearse-pool-growth.ps1](deploy/13-rehearse-pool-growth.ps1):
 
 ```powershell
-.\startandgrowhyperscale\deploy\13-rehearse-pool-growth.ps1 -ExpectedServerName sql-caldova-network-0efc44 -IncludeGrowth -WhatIf
+.\startandgrowhyperscale\deploy\13-rehearse-pool-growth.ps1 -ExpectedServerName <network-server> -IncludeGrowth -WhatIf
 ```
 
 After explicit approval, run without `-WhatIf` (`-Confirm:$false` only after
@@ -216,7 +216,7 @@ Preview [12-reset-demo-storage.ps1](deploy/12-reset-demo-storage.ps1), then obta
 explicit approval before applying:
 
 ```powershell
-.\startandgrowhyperscale\deploy\12-reset-demo-storage.ps1 -ExpectedServerName sql-caldova-network-0efc44 -WhatIf
+.\startandgrowhyperscale\deploy\12-reset-demo-storage.ps1 -ExpectedServerName <network-server> -WhatIf
 ```
 
 The reset truncates only `demo.StoragePayload`, waits for page deallocation,
@@ -276,7 +276,7 @@ five minutes of expiry, avoiding repeated concurrent Azure CLI cache access.
 Authentication errors still stop the run explicitly; no retry, sign-in,
 credential-cache deletion, or unencrypted-cache fallback is performed.
 
-The initial live fill on `sql-caldova-network-0efc44` is verified: Caldova
+The initial live fill on `<network-server>` is verified: Caldova
 18.000, Northbrook 12.000, Ridgeview 15.000 GiB used, each with 20.000 GiB
 allocated. Files grew from 10 to 20 GiB allocated during the fill. This proves
 initial storage growth under the CLI identity, not Step 4 growth under CPU load
@@ -302,7 +302,7 @@ dotnet run --project .\startandgrowhyperscale\tests\CaldovaNetworkScheduling.Che
 ### Published serverless illustration
 
 The updated package is published to the existing App Service. Launch
-<https://app-caldova-network-0efc44.azurewebsites.net/serverless-illustration>
+`https://<network-app>.azurewebsites.net/serverless-illustration`
 for the approved, explicitly labeled scripted scene.
 The measured page remains at `/`; these are two routes of one deployed app.
 `Demo__Mode=Measured` is the startup compatibility setting, not a claim that
@@ -320,10 +320,10 @@ bar chart still requires the presenter to set and verify the intended view.
 
 | | |
 |---|---|
-| URL | <https://app-caldova-network-0efc44.azurewebsites.net> |
+| URL | `https://<network-app>.azurewebsites.net` |
 | Resource group | `caldova-network-rg` (currently signed-in Azure subscription) |
-| App Service | `app-caldova-network-0efc44` on Windows S1 plan `asp-caldova-network-0efc44`, East US 2 |
-| Logical server | `sql-caldova-network-0efc44.database.windows.net` — **East US 2**, Microsoft Entra-only auth, public endpoint + firewall |
+| App Service | `<network-app>` on Windows S1 plan `asp-caldova-network-<suffix>`, East US 2 |
+| Logical server | `<network-server>.database.windows.net` — **East US 2**, Microsoft Entra-only auth, public endpoint + firewall |
 | Elastic pool | `caldova-network-pool` — Hyperscale, 8 vCores, on the same logical server; **empty** for now |
 | Databases | `caldova-scheduling` (serverless `HS_S_Gen5_8`, 1–8 vCores, auto-pause 60 min), `northbrook-scheduling` (provisioned `HS_Gen5_2`), `ridgeview-scheduling` (provisioned `HS_Gen5_4`) — all standalone |
 
@@ -968,7 +968,7 @@ New servers use the signed-in Entra user as administrator.
 For a fresh Scene 2 deployment, stop Start app/workload traffic and preview:
 
 ```powershell
-.\startandgrowhyperscale\deploy\10-reset-part1.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf
+.\startandgrowhyperscale\deploy\10-reset-part1.ps1 -ExpectedServerName <start-server> -WhatIf
 ```
 
 After explicit approval, repeat without `-WhatIf` and with `-Confirm:$false`.
@@ -997,7 +997,7 @@ The demo skill recognizes **Create the pool on the Start server**. Once all
 three Start databases exist, preview only the new pool:
 
 ```powershell
-.\startandgrowhyperscale\deploy\14-create-part1-pool.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf
+.\startandgrowhyperscale\deploy\14-create-part1-pool.ps1 -ExpectedServerName <start-server> -WhatIf
 ```
 
 After explicit approval, repeat without `-WhatIf`. This creates only an empty
@@ -1015,7 +1015,7 @@ and app configuration/connections remain unchanged. Do not run the broader
 Start pool membership is separately authorized and explicitly targeted:
 
 ```powershell
-.\startandgrowhyperscale\deploy\06-set-pool-membership.ps1 -Target Start -ExpectedServerName sql-caldova-start-0efc44 -Mode Pooled -WhatIf
+.\startandgrowhyperscale\deploy\06-set-pool-membership.ps1 -Target Start -ExpectedServerName <start-server> -Mode Pooled -WhatIf
 ```
 
 After approval for Caldova conversion and all three moves, use the same command
@@ -1087,8 +1087,11 @@ connections to the specified databases (no `USE` statements):
 6. Verify `sql\04-verify-read.sql` from Caldova using the application identity.
    Then use app steps 3 and 4 to verify actual reads and booking.
 
-Scripts use the current fixed database names and app identity
-`app-caldova-network-0efc44`. If porting, coordinate SQL files, the provider
+Scripts use the current fixed database names. The app identity name
+`<network-app>` (`app-caldova-network-<suffix>`) is supplied to `00-app-login.sql`
+and `03-app-permissions.sql` as SQLCMD variable `AppName` from `00-config.ps1`,
+and to `05-demo-storage.sql` by the app from private configuration.
+If porting, coordinate SQL files, the provider
 allowlist, source-catalog guard, connection settings, and portal instructions.
 Duplicate Entra display names require the documented Object ID login syntax;
 use the managed identity's object ID, not a client ID. No SQL login is needed.
@@ -1113,13 +1116,13 @@ access). `/healthz` checks application liveness only, never SQL readiness.
 
 Azure layout for measured mode (all in `caldova-network-rg`, deployed by `04-deploy-sql.ps1`):
 
-- Logical server `sql-caldova-network-0efc44`, East US 2, **public endpoint + firewall**.
+- Logical server `<network-server>`, East US 2, **public endpoint + firewall**.
   Microsoft Entra-only authentication is retained for the native cross-database preview.
 - `caldova-scheduling` — Hyperscale serverless `HS_S_Gen5_8`, min 1 vCore, auto-pause 60 min.
 - `northbrook-scheduling` (provisioned `HS_Gen5_2`), `ridgeview-scheduling` (provisioned
   `HS_Gen5_4`).
 - `caldova-network-pool` — Hyperscale elastic pool, 8 vCores, created empty.
-- Part 1 server `sql-caldova-start-0efc44` with its own serverless `caldova-scheduling`
+- Part 1 server `<start-server>` with its own serverless `caldova-scheduling`
   (deployed by `09-deploy-part1-sql.ps1`; see [Separate Part 1 serverless database](#separate-part-1-serverless-database)).
 - Every database and the pool use **Local** backup storage redundancy and **no** zone redundancy,
   so the databases can move into the pool later.
@@ -1301,6 +1304,46 @@ cd app
 dotnet run --launch-profile http    # http://localhost:5191, Part 2 server
 dotnet run --launch-profile part1   # http://localhost:5099, Part 1 server, measured load enabled
 ```
+
+Live launches also need the private server names described next.
+
+### Private local configuration
+
+Public files never name the live Azure resources. Docs use `<start-server>`,
+`<network-server>`, and `<network-app>` for `sql-caldova-start-<suffix>`,
+`sql-caldova-network-<suffix>`, and `app-caldova-network-<suffix>`. The deploy
+scripts compute `<suffix>` in `deploy\00-config.ps1` from the current
+subscription; `CALDOVA_PART1_SQL_SERVER`, `CALDOVA_NETWORK_SQL_SERVER`, and
+`CALDOVA_NETWORK_APP_NAME` override the names. To see the real names, list them
+read-only:
+
+```powershell
+az sql server list --resource-group caldova-network-rg --query "[?starts_with(name, 'sql-caldova-')].name" --output tsv
+```
+
+Tracked `appsettings.json` and `launchSettings.json` use the placeholders
+`{network-server}` and `{start-server}` in `ConnectionStrings:Scheduling` and
+`ServerlessMonitor:ResourceId`. The app fills them at startup from, in order of
+precedence, command line, environment, .NET user-secrets (Development), then the
+git-ignored `app\appsettings.Local.json` (never published):
+
+```json
+{
+  "Azure": {
+    "NetworkSqlServer": "sql-caldova-network-<suffix>",
+    "StartSqlServer": "sql-caldova-start-<suffix>",
+    "AppName": "app-caldova-network-<suffix>"
+  }
+}
+```
+
+`Azure:NetworkSqlServer`/`Azure:StartSqlServer` fall back to
+`CALDOVA_NETWORK_SQL_SERVER`/`CALDOVA_PART1_SQL_SERVER`. `Azure:AppName` (or
+`CALDOVA_NETWORK_APP_NAME`; `WEBSITE_SITE_NAME` on App Service) is used only by
+the storage-seeding grants. In live mode an unresolved or invalid placeholder
+stops startup with a message naming the missing setting; it never targets a
+default server. Playback and replay substitute harmless offline names and need
+no private values. Deployed App Service settings carry complete values.
 
 ### Separate Part 1 serverless database
 

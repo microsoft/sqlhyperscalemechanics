@@ -17,6 +17,9 @@ import pyodbc
 SQL_COPT_SS_ACCESS_TOKEN = 1256
 ROOT = Path(__file__).parents[1]
 DEFAULT_CORPUS = ROOT / "corpus" / "pmc-curated-v1"
+EXPECTED_DOCUMENTS = 30
+EXPECTED_CHUNKS = 2834
+EXPECTED_QUESTIONS = 14
 
 
 def azure_sql_token(subscription_id: str) -> bytes:
@@ -83,7 +86,9 @@ def verify_package(corpus: Path) -> tuple[dict, list[dict], list[dict]]:
     chunks = [json.loads(line) for line in (corpus / "Chunks.jsonl").read_text(encoding="utf-8").splitlines()]
     if any("Embedding" in chunk for chunk in chunks):
         raise RuntimeError("The local package still contains legacy embeddings")
-    if len(documents) != 44 or len(chunks) != 4076 or len(manifest["coverage"]) != 15:
+    if (len(documents), len(chunks), len(manifest["coverage"])) != (
+        EXPECTED_DOCUMENTS, EXPECTED_CHUNKS, EXPECTED_QUESTIONS
+    ):
         raise RuntimeError("Unexpected corpus or evaluation-set size")
     return manifest, documents, chunks
 
@@ -143,7 +148,7 @@ def load_corpus(cursor: pyodbc.Cursor, manifest: dict, documents: list[dict], ch
     counts = cursor.execute(
         "SELECT (SELECT COUNT_BIG(*) FROM dbo.pmc_documents), (SELECT COUNT_BIG(*) FROM dbo.pmc_chunks);"
     ).fetchone()
-    if tuple(counts) == (44, 4076):
+    if tuple(counts) == (EXPECTED_DOCUMENTS, EXPECTED_CHUNKS):
         cursor.execute(
             "IF NOT EXISTS (SELECT 1 FROM dbo.corpus_status WHERE status_id = 1) "
             "INSERT dbo.corpus_status "
@@ -153,7 +158,10 @@ def load_corpus(cursor: pyodbc.Cursor, manifest: dict, documents: list[dict], ch
         )
         return
     if tuple(counts) != (0, 0):
-        raise RuntimeError(f"Target contains a partial corpus: {counts[0]} documents, {counts[1]} chunks")
+        raise RuntimeError(
+            f"Target contains a partial or earlier corpus: {counts[0]} documents, {counts[1]} chunks. "
+            "Deploy to an empty research database."
+        )
 
     cursor.executemany(
         "INSERT dbo.pmc_documents (document_id, pmcid, title) VALUES (?, ?, ?);",
@@ -194,7 +202,7 @@ SET embedding = AI_GENERATE_EMBEDDINGS(text_chunk USE MODEL CaldovaEvidenceEmbed
         after = cursor.execute("SELECT COUNT_BIG(*) FROM dbo.pmc_chunks WHERE embedding IS NULL;").fetchone()[0]
         if after >= before:
             raise RuntimeError("Embedding generation made no progress; inspect AI REST endpoint diagnostics")
-        print(f"Embedded {4076 - after:,} / 4,076 passages", flush=True)
+        print(f"Embedded {EXPECTED_CHUNKS - after:,} / {EXPECTED_CHUNKS:,} passages", flush=True)
 
     cursor.execute("UPDATE dbo.corpus_status SET embedded_at = SYSUTCDATETIME() WHERE status_id = 1;")
     connection.commit()
@@ -246,7 +254,10 @@ def main() -> int:
         generate_embeddings(connection, args.batch_size)
         create_index_and_procedures(connection)
 
-    print("SQL deployment complete: 44 articles, 4,076 embedded passages, and retrieval procedures.")
+    print(
+        f"SQL deployment complete: {EXPECTED_DOCUMENTS} articles, {EXPECTED_CHUNKS:,} embedded passages, "
+        "and retrieval procedures."
+    )
     return 0
 
 

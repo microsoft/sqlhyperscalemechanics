@@ -13,10 +13,6 @@ from pathlib import Path
 import pyodbc
 
 SQL_COPT_SS_ACCESS_TOKEN = 1256
-DEFAULT_TARGETS = (
-    "antho-test-server.database.windows.net",
-    "antho-test-server-uksouth.database.windows.net",
-)
 
 
 def database_token() -> bytes:
@@ -192,7 +188,13 @@ def deploy(targets: tuple[str, ...], database: str, schema_path: Path) -> dict[s
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", default="caldovadb")
-    parser.add_argument("--target", action="append", dest="targets")
+    parser.add_argument(
+        "--target",
+        action="append",
+        dest="targets",
+        required=True,
+        help="Logical server FQDN (<server>.database.windows.net). Repeat to compare several servers.",
+    )
     parser.add_argument(
         "--schema",
         type=Path,
@@ -207,7 +209,7 @@ def main() -> int:
     if not args.apply:
         parser.error("--apply is required")
 
-    targets = tuple(args.targets or DEFAULT_TARGETS)
+    targets = tuple(args.targets)
     fingerprints = deploy(targets, args.database, args.schema)
     print(json.dumps({"database": args.database, "fingerprints": fingerprints}, indent=2))
     return 0

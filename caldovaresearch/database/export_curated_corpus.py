@@ -5,6 +5,9 @@ The demo corpus has to answer real semantic questions, so documents are chosen b
 topic rather than by lowest identifier. Every chunk keeps the embedding that is
 already stored in the source database, so no re-embedding happens here and the
 small and large databases stay in the same vector space.
+
+Only articles whose current PMC Open Access license is CC BY or CC0 are exported, so the
+committed corpus can be redistributed with attribution (see THIRD-PARTY-NOTICES.md).
 """
 
 from __future__ import annotations
@@ -13,18 +16,21 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import tempfile
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from deploy_common_schema import connect, database_token
 
 ROOT = Path(__file__).parents[1]
 DEFAULT_OUTPUT = ROOT / "staging" / "pmc-curated-v1"
+PMC_OPEN_DATA = "https://pmc-oa-opendata.s3.amazonaws.com"
+REDISTRIBUTABLE_LICENSES = {"CC BY", "CC0"}
 
 # Each demo question maps to title keywords that reliably surface relevant articles.
 TOPICS: list[tuple[str, list[str]]] = [
-    ("How does chronic sleep disruption contribute to insulin resistance and impaired glucose regulation in adults?",
-     ["%sleep%", "%insulin%"]),
     ("What biological mechanisms connect periodontal inflammation with elevated blood pressure and cardiovascular risk?",
      ["%periodont%", "%blood pressure%"]),
     ("Does improving maternal nutrition during pregnancy reduce impaired fetal growth and adverse birth outcomes?",
@@ -76,6 +82,18 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def pmc_license(pmcid: str) -> str | None:
+    """Return the license code from the latest PMC Open Access metadata version."""
+    query = urllib.parse.urlencode({"list-type": "2", "prefix": f"metadata/{pmcid}."})
+    with urllib.request.urlopen(f"{PMC_OPEN_DATA}/?{query}", timeout=30) as response:
+        keys = re.findall(r"<Key>([^<]+)</Key>", response.read().decode("utf-8"))
+    if not keys:
+        return None
+    latest = max(keys, key=lambda key: int(key.split(".")[1]))
+    with urllib.request.urlopen(f"{PMC_OPEN_DATA}/{latest}", timeout=30) as response:
+        return json.load(response).get("license_code")
+
+
 def write_immutable(path: Path, value: bytes) -> None:
     if path.exists() and path.read_bytes() == value:
         return
@@ -89,6 +107,7 @@ def write_immutable(path: Path, value: bytes) -> None:
 def export(args: argparse.Namespace) -> dict:
     documents: dict[int, dict] = {}
     coverage: list[dict] = []
+    licenses: dict[str, str | None] = {}
 
     with connect(args.server, args.database, database_token()) as connection:
         connection.timeout = args.timeout
@@ -99,14 +118,25 @@ def export(args: argparse.Namespace) -> dict:
             rows = cursor.execute(
                 SELECT_DOCUMENTS.format(predicates=predicates), args.docs_per_topic, *terms
             ).fetchall()
+            kept = []
             for row in rows:
+                pmcid = f"PMC{int(row.pmcid)}"
+                if pmcid not in licenses:
+                    licenses[pmcid] = pmc_license(pmcid)
+                if licenses[pmcid] not in REDISTRIBUTABLE_LICENSES:
+                    print(f"  skipped {pmcid}: license {licenses[pmcid] or 'unknown'}")
+                    continue
+                kept.append(row)
                 documents.setdefault(int(row.document_id), {
                     "DocumentId": int(row.document_id),
-                    "PmcId": f"PMC{int(row.pmcid)}",
+                    "PmcId": pmcid,
                     "Title": str(row.title),
                 })
-            coverage.append({"question": question, "documents": [int(r.document_id) for r in rows]})
-            print(f"  {len(rows):>2} docs  {question[:70]}")
+            if not kept:
+                print(f"   0 docs  {question[:70]} (omitted from coverage)")
+                continue
+            coverage.append({"question": question, "documents": [int(r.document_id) for r in kept]})
+            print(f"  {len(kept):>2} docs  {question[:70]}")
 
         if not documents:
             raise ValueError("No documents matched the configured topics")
@@ -115,6 +145,15 @@ def export(args: argparse.Namespace) -> dict:
         by_pmcid: dict[str, dict] = {}
         for document in sorted(documents.values(), key=lambda d: d["DocumentId"]):
             by_pmcid.setdefault(document["PmcId"], document)
+        canonical = {
+            document_id: by_pmcid[document["PmcId"]]["DocumentId"]
+            for document_id, document in documents.items()
+        }
+        coverage = [
+            {"question": item["question"],
+             "documents": list(dict.fromkeys(canonical[d] for d in item["documents"]))}
+            for item in coverage
+        ]
         documents = {d["DocumentId"]: d for d in by_pmcid.values()}
         print(f"  {len(documents)} documents after de-duplicating by PMCID")
 
@@ -154,7 +193,7 @@ def export(args: argparse.Namespace) -> dict:
     document_bytes = b"".join(document_lines)
     manifest = {
         "format": "pmc-curated-v1",
-        "source": {"server": args.server, "database": args.database},
+        "source": {"collection": "PMC Open Access Subset", "licenses": sorted(REDISTRIBUTABLE_LICENSES)},
         "embedding": {
             "model": "minishlab/potion-base-32M",
             "runtime": "model2vec",

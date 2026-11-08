@@ -59,8 +59,8 @@ type ReadinessResponse = {
 }
 
 const DEMO_QUERIES = [
-  'How does chronic sleep disruption contribute to insulin resistance and impaired glucose regulation in adults?',
   'What biological mechanisms connect periodontal inflammation with elevated blood pressure and cardiovascular risk?',
+  'Does treatment of chronic inflammatory disease reduce the subsequent risk of cardiovascular events?',
   'How does disruption of the intestinal microbiome influence anxiety and depressive symptoms?',
   'Can physical activity slow functional and cognitive deterioration in people with neurodegenerative disease?',
   'Why do some cancer patients fail to respond to immune-based treatment despite initially showing tumor regression?',
@@ -169,7 +169,7 @@ ORDER BY vector_result.distance;
 -- metadata, and returns the neighboring chunks for context.`
 
 const environmentButtons: Record<Environment, string> = {
-  small: '4K',
+  small: '3K',
   million: '1M',
   replica: 'Named Replica',
 }

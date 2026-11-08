@@ -63,7 +63,7 @@ const demoTableName: DatabaseTarget['tableName'] = DEMO_SCALE === '1M'
   : 'dbo.pmc_chunks_demo'
 
 const DATABASE_LABELS: Record<Environment, string> = {
-  small: '4K pilot',
+  small: '3K pilot',
   million: `${DEMO_SCALE} primary`,
   replica: 'Named replica',
 }
