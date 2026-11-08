@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 
-from deploy_database import connect
+from deploy_database import EXPECTED_CHUNKS, EXPECTED_DOCUMENTS, connect
 
 
 def main() -> int:
@@ -22,7 +22,7 @@ def main() -> int:
             "(SELECT COUNT_BIG(*) FROM dbo.pmc_chunks), "
             "(SELECT COUNT_BIG(*) FROM dbo.pmc_chunks WHERE embedding IS NULL);"
         ).fetchone()
-        if tuple(counts) != (44, 4076, 0):
+        if tuple(counts) != (EXPECTED_DOCUMENTS, EXPECTED_CHUNKS, 0):
             raise RuntimeError(f"Unexpected corpus counts: {tuple(counts)}")
 
         index_row = cursor.execute(
@@ -43,8 +43,8 @@ def main() -> int:
             raise RuntimeError("search_evidence did not return three distinct articles")
 
         print("SQL verification passed")
-        print("  Articles: 44")
-        print("  Passages: 4,076")
+        print(f"  Articles: {EXPECTED_DOCUMENTS}")
+        print(f"  Passages: {EXPECTED_CHUNKS:,}")
         print("  Embeddings missing: 0")
         print("  Vector index: IX_pmc_chunks_embedding, version 3, cosine")
         print("  search_evidence: 3 distinct articles")

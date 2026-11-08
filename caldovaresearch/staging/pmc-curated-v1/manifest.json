@@ -1,8 +1,11 @@
 {
   "format": "pmc-curated-v1",
   "source": {
-    "server": "vbnech-large-server.database.windows.net",
-    "database": "vbench_large"
+    "collection": "PMC Open Access Subset",
+    "licenses": [
+      "CC BY",
+      "CC0"
+    ]
   },
   "embedding": {
     "model": "minishlab/potion-base-32M",
@@ -15,25 +18,17 @@
   },
   "documents": {
     "path": "Documents.jsonl",
-    "rows": 44,
-    "bytes": 7694,
-    "sha256": "a2dd404982ade1bafae773524757fa4a45c79f2ae6312d983b7194ace599fb63"
+    "rows": 30,
+    "bytes": 5274,
+    "sha256": "f62579f58e1ee4266c3d12fbceaec215f31b082d3400dfaca69a5e20541ab4d9"
   },
   "chunks": {
     "path": "Chunks.jsonl",
-    "rows": 4076,
-    "bytes": 29900198,
-    "sha256": "d50fe5f8e18cebd4fd45c46eb47b804bdc6fb6f919488372c7364e62a9eba1a9"
+    "rows": 2834,
+    "bytes": 20789198,
+    "sha256": "4823197b09ff43e4277e338e643e085c071a6e39e32c8f1df946b75540297a78"
   },
   "coverage": [
-    {
-      "question": "How does chronic sleep disruption contribute to insulin resistance and impaired glucose regulation in adults?",
-      "documents": [
-        9307,
-        15869,
-        30839
-      ]
-    },
     {
       "question": "What biological mechanisms connect periodontal inflammation with elevated blood pressure and cardiovascular risk?",
       "documents": [
@@ -53,23 +48,18 @@
     {
       "question": "How does prolonged exposure to air pollution affect cognitive decline and dementia risk in older adults?",
       "documents": [
-        9924,
-        57882,
-        170743
+        57882
       ]
     },
     {
       "question": "What factors explain why obesity increases the risk of severe respiratory infection?",
       "documents": [
-        1599349,
-        1824897,
-        2280717
+        1599349
       ]
     },
     {
       "question": "How does disruption of the intestinal microbiome influence anxiety and depressive symptoms?",
       "documents": [
-        77055,
         77825,
         130053
       ]
@@ -86,14 +76,12 @@
       "question": "Why are children exposed to repeated intestinal infections more likely to experience poor linear growth?",
       "documents": [
         1743,
-        17583,
         19872
       ]
     },
     {
       "question": "How does social isolation affect mortality and cardiovascular health among older people?",
       "documents": [
-        17623,
         346763,
         729863
       ]
@@ -101,7 +89,6 @@
     {
       "question": "What mechanisms connect chronic psychological stress with increased susceptibility to infectious disease?",
       "documents": [
-        298150,
         343273,
         370838
       ]
@@ -126,7 +113,6 @@
       "question": "Why do some cancer patients fail to respond to immune-based treatment despite initially showing tumor regression?",
       "documents": [
         8822,
-        9365,
         14795
       ]
     },
@@ -134,16 +120,13 @@
       "question": "How does limited access to nutritious food contribute to both obesity and micronutrient deficiency?",
       "documents": [
         17584,
-        88977,
-        107196
+        88977
       ]
     },
     {
       "question": "What maternal, household, and environmental conditions contribute jointly to childhood undernutrition?",
       "documents": [
-        227466,
-        240849,
-        240850
+        227466
       ]
     }
   ]

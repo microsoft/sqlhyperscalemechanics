@@ -20,7 +20,7 @@ void Check(bool condition, string description)
 
 var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
 {
-    ["ServerlessMonitor:ResourceId"] = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/sql-caldova-network-0efc44/databases/caldova-scheduling",
+    ["ServerlessMonitor:ResourceId"] = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/sql-caldova-network-test/databases/caldova-scheduling",
     ["ServerlessMonitor:EnableWorkload"] = "false"
 }).AddEnvironmentVariables().Build();
 var privateConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
@@ -48,6 +48,93 @@ foreach (var invalid in new[] { "", "invalid", Guid.Empty.ToString("D") })
 }
 Check(ServerlessMonitor.ResolveConfiguredResourceId(configuration) == configuration["ServerlessMonitor:ResourceId"],
     "An explicitly configured complete resource target remains unchanged");
+const string placeholderConnection = "Server=tcp:{network-server}.database.windows.net,1433;Initial Catalog=caldova-scheduling";
+const string placeholderResource = "/subscriptions/{subscription-id}/resourceGroups/caldova-network-rg/providers/Microsoft.Sql/servers/{start-server}/databases/caldova-scheduling";
+IConfiguration NamesConfig(Dictionary<string, string?> values) => new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+{
+    ["ConnectionStrings:Scheduling"] = placeholderConnection,
+    ["ServerlessMonitor:ResourceId"] = placeholderResource
+}.Concat(values).ToDictionary()).Build();
+var names = NamesConfig(new() { ["Azure:NetworkSqlServer"] = "sql-caldova-network-test", ["Azure:StartSqlServer"] = "sql-caldova-start-test" });
+DemoResourceNames.Apply(names, offline: false);
+Check(names["ConnectionStrings:Scheduling"] == "Server=tcp:sql-caldova-network-test.database.windows.net,1433;Initial Catalog=caldova-scheduling"
+    && names["ServerlessMonitor:ResourceId"]!.Contains("/servers/sql-caldova-start-test/databases/")
+    && names["ServerlessMonitor:ResourceId"]!.Contains("{subscription-id}"),
+    "Private server names resolve public placeholders in the connection string and resource ID without touching the subscription placeholder");
+names = NamesConfig(new() { ["CALDOVA_NETWORK_SQL_SERVER"] = "sql-caldova-network-env", ["CALDOVA_PART1_SQL_SERVER"] = "sql-caldova-start-env" });
+DemoResourceNames.Apply(names, offline: false);
+Check(names["ConnectionStrings:Scheduling"]!.Contains("tcp:sql-caldova-network-env.") && names["ServerlessMonitor:ResourceId"]!.Contains("/servers/sql-caldova-start-env/"),
+    "Deployment-script environment names also resolve the server placeholders");
+names = NamesConfig(new() { ["Azure:NetworkSqlServer"] = "sql-caldova-network-local", ["CALDOVA_NETWORK_SQL_SERVER"] = "sql-caldova-network-env",
+    ["Azure:StartSqlServer"] = "sql-caldova-start-local" });
+DemoResourceNames.Apply(names, offline: false);
+Check(names["ConnectionStrings:Scheduling"]!.Contains("tcp:sql-caldova-network-local."), "Azure:NetworkSqlServer takes precedence over the deployment environment name");
+names = NamesConfig(new());
+DemoResourceNames.Apply(names, offline: true);
+Check(names["ConnectionStrings:Scheduling"]!.Contains("tcp:sql-caldova-network-offline.")
+    && names["ServerlessMonitor:ResourceId"]!.Contains("/servers/sql-caldova-start-offline/")
+    && !names["ConnectionStrings:Scheduling"]!.Contains('{') && !names["ServerlessMonitor:ResourceId"]!.Contains("-server}"),
+    "Offline replay and synthetic playback do not require private server names");
+foreach (var (missing, invalid) in new[] { ("Azure:NetworkSqlServer", ""), ("Azure:NetworkSqlServer", "SQL_Bad;Server"), ("Azure:StartSqlServer", ""),
+    ("Azure:StartSqlServer", "sql-caldova-start-test.database.windows.net") })
+{
+    var values = new Dictionary<string, string?> { ["Azure:NetworkSqlServer"] = "sql-caldova-network-test", ["Azure:StartSqlServer"] = "sql-caldova-start-test" };
+    values[missing] = invalid;
+    var unresolved = NamesConfig(values);
+    string? message = null;
+    try { DemoResourceNames.Apply(unresolved, offline: false); }
+    catch (InvalidOperationException ex) { message = ex.Message; }
+    Check(message is not null && message.Contains(missing) && message.Contains(DemoResourceNames.LocalSettingsFile),
+        "Live mode fails clearly instead of targeting an unresolved or invalid server placeholder");
+}
+var completeNames = NamesConfig(new());
+completeNames["ConnectionStrings:Scheduling"] = "Server=tcp:sql-explicit.database.windows.net,1433";
+completeNames["ServerlessMonitor:ResourceId"] = configuration["ServerlessMonitor:ResourceId"];
+DemoResourceNames.Apply(completeNames, offline: false);
+Check(completeNames["ConnectionStrings:Scheduling"] == "Server=tcp:sql-explicit.database.windows.net,1433"
+    && completeNames["ServerlessMonitor:ResourceId"] == configuration["ServerlessMonitor:ResourceId"],
+    "Explicit complete server targets (deployed App Service settings) need no private names");
+Check(DemoResourceNames.ResolveAppName(NamesConfig(new() { ["Azure:AppName"] = "app-caldova-network-test" })) == "app-caldova-network-test"
+    && DemoResourceNames.ResolveAppName(NamesConfig(new() { ["CALDOVA_NETWORK_APP_NAME"] = "app-caldova-network-env" })) == "app-caldova-network-env"
+    && DemoResourceNames.ResolveAppName(NamesConfig(new() { ["WEBSITE_SITE_NAME"] = "app-caldova-network-site" })) == "app-caldova-network-site",
+    "The app identity name comes from private configuration, the deployment environment, or App Service");
+foreach (var invalid in new string?[] { null, "", "app'];DROP USER x;--", "-bad-" })
+{
+    var rejected = false;
+    try { DemoResourceNames.ResolveAppName(NamesConfig(new() { ["Azure:AppName"] = invalid })); }
+    catch (InvalidOperationException ex) { rejected = ex.Message.Contains("Azure:AppName"); }
+    Check(rejected, "A missing or unsafe app identity name fails clearly before any storage SQL runs");
+}
+var storageSql = PoolStorage.SetupSql("GRANT SELECT ON OBJECT::demo.StorageSize TO [$(AppName)];",
+    NamesConfig(new() { ["Azure:AppName"] = "app-caldova-network-test" }));
+Check(storageSql == "GRANT SELECT ON OBJECT::demo.StorageSize TO [app-caldova-network-test];",
+    "Storage setup SQL receives the configured app identity instead of a tracked literal");
+var appSettingsPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+if (File.Exists(appSettingsPath))
+{
+    var tracked = File.ReadAllText(appSettingsPath);
+    Check(tracked.Contains(DemoResourceNames.NetworkServerPlaceholder) && tracked.Contains("{subscription-id}"),
+        "Tracked app settings keep public server and subscription placeholders");
+}
+var localRoot = Path.Combine(AppContext.BaseDirectory, "local-settings-check");
+Directory.CreateDirectory(localRoot);
+try
+{
+    File.WriteAllText(Path.Combine(localRoot, "appsettings.json"), """{ "Azure": { "NetworkSqlServer": "sql-public-default", "AppName": "app-public" } }""");
+    File.WriteAllText(Path.Combine(localRoot, DemoResourceNames.LocalSettingsFile), """{ "Azure": { "NetworkSqlServer": "sql-caldova-network-local", "AppName": "app-local" } }""");
+    using var fileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(localRoot);
+    var layered = new ConfigurationManager();
+    layered.AddJsonFile(fileProvider, "appsettings.json", optional: false, reloadOnChange: false);
+    layered.AddInMemoryCollection(new Dictionary<string, string?> { ["Azure:AppName"] = "app-environment-override" });
+    DemoResourceNames.AddLocalSettings(layered, new LocalSettingsEnvironment(fileProvider, localRoot));
+    Check(layered["Azure:NetworkSqlServer"] == "sql-caldova-network-local" && layered["Azure:AppName"] == "app-environment-override",
+        "The git-ignored local file overrides tracked app settings while later sources such as environment still win");
+    var withoutLocal = new ConfigurationManager();
+    DemoResourceNames.AddLocalSettings(withoutLocal, new LocalSettingsEnvironment(
+        new Microsoft.Extensions.FileProviders.NullFileProvider(), localRoot));
+    Check(withoutLocal["Azure:NetworkSqlServer"] is null, "The local settings file is optional for public clones");
+}
+finally { Directory.Delete(localRoot, recursive: true); }
 if (args.Contains("--pool-cli-check"))
 {
     var currentName = await new AzureCliRunner().RunAsync(
@@ -210,6 +297,13 @@ var layout = await RenderAsync<MainLayout>();
 foreach (var route in new[] { "/network", "/verify", "/scale", "/appointments" })
     Check(layout.Contains($"href=\"{route}\""), $"Navigation includes {route}");
 Check(!layout.Contains("SQL DMV") && !layout.Contains("mode-chip"), "Header has no data-source or mode labels");
+var originalPlayback = configuration["Demo:Playback"];
+configuration["Demo:Playback"] = "true";
+var playbackLayout = await RenderAsync<MainLayout>();
+configuration["Demo:Playback"] = originalPlayback;
+Check(playbackLayout == layout && !playbackLayout.Contains("3b") && !playbackLayout.Contains("href=\"/pool\"")
+    && System.Text.RegularExpressions.Regex.Matches(playbackLayout, "class=\"nav-step\"").Count == 5,
+    "Playback renders exactly the live header and five-step navigation, without a playback-only Scale & Grow tab");
 var acquisition = await RenderAsync<Overview>();
 Check(acquisition.Contains("page-header acquisitions-header"),
     "Acquisitions uses its own full-width subtitle styling without changing other page headers");
@@ -238,6 +332,7 @@ foreach (var label in new[] { "MEASURED", "measured vCores", "Measured.", "illus
 Check(!patientAccess.Contains("Next · Step 2"), "Serverless chapter ends independently");
 Check(patientAccess.Contains("staff online") && patientAccess.Contains("Each staff member runs this batch")
     && !patientAccess.Contains("Press Play"), "Staff map to SQL connections");
+await ResumeActivityChecks.CheckRenderingAsync(Check, renderer);
 Check(patientAccess.Contains("Load generation is disabled"), "SQL load is opt-in");
 var illustration = await renderer.Dispatcher.InvokeAsync(async () => (await renderer.RenderComponentAsync<Scale>(
     ParameterView.FromDictionary(new Dictionary<string, object?> { ["ForceScripted"] = true }))).ToHtmlString());
@@ -533,8 +628,10 @@ Check(demoRamp.StartAt(0) == TimeSpan.Zero && demoRamp.ActiveAt(TimeSpan.Zero) =
     && DemoField<TimeSpan>("planned") == TimeSpan.FromSeconds(195),
     "Serverless Run starts one worker immediately and plans 195 seconds including trailing telemetry");
 Check(DemoField<TimeSpan>("RunCooldown", true) == TimeSpan.FromSeconds(30)
-    && DemoField<TimeSpan>("Cooldown", true) == TimeSpan.FromSeconds(75),
-    "The gradual Run does not change the separate post-resume observation");
+    && DemoField<TimeSpan>("ResumeActivity", true) == TimeSpan.FromMinutes(10)
+    && typeof(Scale).GetField("Cooldown", System.Reflection.BindingFlags.NonPublic |
+        System.Reflection.BindingFlags.Static) is null,
+    "Run retains trailing observation while resume waits for manual Stop with a ten-minute workload safety limit");
 Check(Enumerable.Range(0, 10).All(i => demoRamp.StopAt(i) > demoRamp.StartAt(i))
     && demoRamp.StartAt(1) == TimeSpan.FromSeconds(15)
     && demoRamp.StartAt(2) == TimeSpan.FromSeconds(30) && demoRamp.StartAt(5) == TimeSpan.FromSeconds(30)
@@ -652,4 +749,13 @@ sealed class MonitorHandler(string cpu, string billed, string memory) : HttpMess
             Content = new StringContent(Deny ? "Monitoring permission denied" : content)
         });
     }
+}
+
+sealed class LocalSettingsEnvironment(Microsoft.Extensions.FileProviders.IFileProvider provider, string root)
+    : Microsoft.Extensions.Hosting.IHostEnvironment
+{
+    public string EnvironmentName { get; set; } = "Development";
+    public string ApplicationName { get; set; } = "CaldovaNetworkScheduling";
+    public string ContentRootPath { get; set; } = root;
+    public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } = provider;
 }

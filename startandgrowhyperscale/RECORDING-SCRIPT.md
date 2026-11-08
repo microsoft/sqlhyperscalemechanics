@@ -22,13 +22,18 @@ Paste them into the same on-camera demo chat at the corresponding steps.
 
 1. Verify the currently signed-in Azure CLI user/subscription without switching.
    Configure the subscription privately as described in [Run locally](README.md#run-locally);
-   never show subscription/tenant identifiers in the recording.
+   never show subscription/tenant identifiers in the recording. `<start-server>`,
+   `<network-server>`, and `<network-app>` below stand for the
+   `sql-caldova-start-<suffix>`, `sql-caldova-network-<suffix>`, and
+   `app-caldova-network-<suffix>` names; set the real names in git-ignored
+   `app\appsettings.Local.json` as described in
+   [Private local configuration](README.md#private-local-configuration).
 2. Confirm the starting state. Scene 2 may reuse `caldova-network-rg` and
-   `sql-caldova-start-0efc44` after confirmation and compatibility checks.
+   `<start-server>` after confirmation and compatibility checks.
    For a fresh deployment, `caldova-scheduling` must not already exist on that
    server. If it exists, the script verifies rather than creates it; obtain
    separate approval for any deletion/recreation. Part 2: all three databases on
-   `sql-caldova-network-0efc44` standalone and Online (Caldova serverless);
+   `<network-server>` standalone and Online (Caldova serverless);
    `caldova-network-pool` empty.
    If the resource group or Start server is missing, use the off-camera resource
    preparation prompt and `deploy\00-prepare-part1.ps1` (preview, approve, apply).
@@ -51,7 +56,7 @@ until it has had no connections for at least 60 minutes (Hyperscale minimum).
 | Scene | What to record | Status |
 |---|---|---|
 | 1 | **Beat 1.1 - Portal choices.** Portal > Create SQL Database. Show Hyperscale, Serverless vs Provisioned, min/max vCores, region, zone redundancy, networking, Entra auth. Do not click Create. | Rehearse |
-| 2 | **Beat 1.2 - Copilot sizing and deployment.** Show the skill's Scene 2 workflow. In the new on-camera chat, use the short requirements-led runbook prompt. Use the current Azure user/subscription and existing `caldova-network-rg` / `sql-caldova-start-0efc44`. Without dialog boxes or estimate questions, Copilot checks compatibility, states pilot assumptions, recommends Hyperscale serverless 1-8 vCores with 60-min auto-pause, and shows the `-WhatIf` plan. Approve the exact plan; deploy `caldova-scheduling` and verify (time-lapse with disclosure). | Script deployment verified 2026-10-25 (7.7 min); revised prompt/reuse conversation needs rehearsal. Existing database verification is not a fresh deployment. |
+| 2 | **Beat 1.2 - Copilot sizing and deployment.** Show the skill's Scene 2 workflow. In the new on-camera chat, use the short requirements-led runbook prompt. Use the current Azure user/subscription and existing `caldova-network-rg` / `<start-server>`. Without dialog boxes or estimate questions, Copilot checks compatibility, states pilot assumptions, recommends Hyperscale serverless 1-8 vCores with 60-min auto-pause, and shows the `-WhatIf` plan. Approve the exact plan; deploy `caldova-scheduling` and verify (time-lapse with disclosure). | Script deployment verified 2026-10-25 (7.7 min); revised prompt/reuse conversation needs rehearsal. Existing database verification is not a fresh deployment. |
 | 3 | **Portal verification.** Open the exact database from Scene 2. Show server/database names, Hyperscale serverless, 1-8 vCores, and 60-minute auto-pause. Do not change settings or open the query editor. | Rehearse |
 | - | **Populate (off camera).** In the same chat: "Populate the database we just deployed with the demo schema and data. This is off camera." Confirm the Scene 2 target, approve the schema/seed preview, verify tables and counts, then disconnect setup clients. Follow the skill's single-database population workflow, not the Grow setup script. | Rehearse |
 | 4 | **Beat 1.3 - Capture, then record saved results.** Off camera, approve and capture one complete live **Run** using the [README instructions](README.md#save-a-live-run-then-replay-it-for-recording). Its worker levels rise through 1, 2, 6, 10, hold peak demand for 60 seconds against the eight-vCore cap, then remove two workers every 15 seconds through 8, 6, 4, 2, and 0. Trailing CPU observation brings the plan to 195 s plus startup/in-flight SQL. Restart in `ServerlessRecording:Mode=Replay`, calculating speed from the saved duration for 30 seconds of playback. For the recording, click the unchanged **Run** button: saved staff, patient activity, and CPU advance together, with no speed badge. **Stop** pauses; **Run** continues; **Reset** starts over. | Verify that the actual captured gauge reaches 8 and returns down before using it. Use the actual saved duration, not the plan, to calculate speed. Older captures keep their original ramp; record a new live run to see the revised sign-outs. This is replay of earlier SQL measurements, not a new real-time Azure run. Levels are workers, not guaranteed CPU-used vCores. Capture does not include auto-pause/resume, billing, or Grow. |
@@ -60,7 +65,7 @@ until it has had no connections for at least 60 minutes (Hyperscale minimum).
 | - | **Wait at least 10 minutes after the pause** before Scene 6, so the billing chart shows a clear gap. | - |
 | 6 | **Resume.** Click **Sign in (resume)**. A staff avatar connects with a spinner; the app retries quietly and shows "First sign-in completed in N s". After successful sign-in, load-enabled demos automatically start four real SQL workers for 30 seconds, then observe CPU for 75 seconds and stop SQL polling. Previous samples and the actual gap are retained; no gap values are fabricated. | Rehearse the new post-resume activity; historical first sign-in resumed in ~15 s. |
 | - | **Wait 3-5 minutes (off camera)** for Azure Monitor to publish the new billing minutes. | - |
-| 7 | **Billing.** In the portal, go to the Caldova database (`sql-caldova-start-0efc44` / `caldova-scheduling`) > Metrics > App CPU billed (Sum), 1-minute granularity, from about 10 min before the run to now. Show the bars: rise with the run, step down slowly, sit at the 1-vCore floor, a gap with no bars while paused, bars return after resume. Don't hover over numbers. | Ready (2026-10-25: rise to 4.47 avg billed vCores, step down, 1.0 floor for 60 min, no bars while paused, bars return after resume) |
+| 7 | **Billing.** In the portal, go to the Caldova database (`<start-server>` / `caldova-scheduling`) > Metrics > App CPU billed (Sum), 1-minute granularity, from about 10 min before the run to now. Show the bars: rise with the run, step down slowly, sit at the 1-vCore floor, a gap with no bars while paused, bars return after resume. Don't hover over numbers. | Ready (2026-10-25: rise to 4.47 avg billed vCores, step down, 1.0 floor for 60 min, no bars while paused, bars return after resume) |
 
 Post-resume CPU observation includes the preceding 30 seconds of real DMV
 samples so the short burst can form a chart line promptly. A fresh page uses
@@ -165,7 +170,7 @@ activity, repeat/reset, Stop, reduced motion, and expanded layouts without
 scrolling at 1366x768, 1024x768, and 900x700. No SQL data was changed.
 
 **Off-camera real proof:** Preview and explicitly approve
-`deploy\13-rehearse-pool-growth.ps1 -ExpectedServerName sql-caldova-network-0efc44 -IncludeGrowth`.
+`deploy\13-rehearse-pool-growth.ps1 -ExpectedServerName <network-server> -IncludeGrowth`.
 It records real UTC CPU samples, query successes, and used/allocated growth;
 it rejects incomplete growth rather than giving a successful verification.
 
@@ -182,7 +187,7 @@ chart appears underneath them. The measured allocation increase gets a large
 values remain visible after Stop. Once growth is already confirmed, the button
 reads **Run Scheduling**; another allocation-change take requires an approved reset.
 For another take, stop the app and preview `deploy\12-reset-demo-storage.ps1`
-with `-ExpectedServerName sql-caldova-network-0efc44 -WhatIf`. After approval,
+with `-ExpectedServerName <network-server> -WhatIf`. After approval,
 the synthetic-data-only reset restores 18 GiB used / 20 GiB allocated without
 recreating the database or changing scheduling data. The actual reset took
 about 4m12s; reopen the app and verify **Run Scheduling & Grow** before recording.
@@ -236,7 +241,7 @@ scheduling specialties.
 ### Scene 2 - fresh deployment
 
 Use [the Scene 2 reset prompt](prompts/off-camera-reset-scene2.md) in the same chat.
-Preview with `deploy\10-reset-part1.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf`,
+Preview with `deploy\10-reset-part1.ps1 -ExpectedServerName <start-server> -WhatIf`,
 then approve the exact database deletion before applying without `-WhatIf`
 and with `-Confirm:$false`. Stop dependent Start traffic first.
 Only the Start `caldova-scheduling` database is deleted. Keep the resource group,
@@ -259,7 +264,7 @@ pool are kept. Booked slots are not reopened.
 2. Rehearse Scenes 2-11, keeping one on-camera Copilot chat for deployment,
    pool integration, and reset. Scene 1 remains in the recording but is skipped
    during this rehearsal.
-3. Verify current cross-database app behavior on `sql-caldova-network-0efc44` /
+3. Verify current cross-database app behavior on `<network-server>` /
    `caldova-network-pool`, including the view, permissions, and app identity
    (Scenes 10 and 11). Schema is already in all three databases.
 4. Rehearse Beat 2.3 (implemented pool scaling under workload) and Beat 2.4

@@ -11,5 +11,6 @@
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.21" />
     <EmbeddedResource Include="..\sql\02-network-view.sql" LogicalName="AppointmentView.sql" />
     <EmbeddedResource Include="..\sql\05-demo-storage.sql" LogicalName="DemoStorage.sql" />
+    <Content Update="appsettings.Local.json" CopyToPublishDirectory="Never" />
   </ItemGroup>
 </Project>

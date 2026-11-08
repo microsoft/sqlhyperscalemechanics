@@ -84,12 +84,17 @@ public class PoolStorage(IConfiguration configuration, TokenCredential credentia
         finally { tokenGate.Release(); }
     }
     public void Dispose() => tokenGate.Dispose();
+    public static string SetupSql(string sql, IConfiguration configuration)
+    {
+        if (!sql.Contains(DemoResourceNames.AppNameVariable, StringComparison.Ordinal)) return sql;
+        return sql.Replace(DemoResourceNames.AppNameVariable, DemoResourceNames.ResolveAppName(configuration), StringComparison.Ordinal);
+    }
     public virtual async Task SetupAsync(ProviderDemoProfile provider, CancellationToken token)
     {
         using var stream = typeof(PoolStorage).Assembly.GetManifestResourceStream("DemoStorage.sql")
             ?? throw new InvalidOperationException("The demo storage SQL resource is missing.");
         using var reader = new StreamReader(stream);
-        var sql = await reader.ReadToEndAsync(token);
+        var sql = SetupSql(await reader.ReadToEndAsync(token), configuration);
         await using var connection = await OpenAsync(provider, token);
         foreach (var batch in Regex.Split(sql, @"^[ \t]*GO[ \t]*\r?$", RegexOptions.Multiline | RegexOptions.IgnoreCase)
             .Where(batch => !string.IsNullOrWhiteSpace(batch)))

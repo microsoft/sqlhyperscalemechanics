@@ -32,6 +32,7 @@ try {
     $values = @{
         'StorageFill__Approved' = 'true'
         'Demo__Playback' = 'false'
+        'Azure__AppName' = $AppName
         'ConnectionStrings__Scheduling' = "Server=tcp:$SqlServerFqdn,1433;Initial Catalog=caldova-scheduling;Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connect Timeout=30"
         'ServerlessMonitor__ResourceId' = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Sql/servers/$SqlServerName/databases/caldova-scheduling"
     }

@@ -46,6 +46,11 @@ planned capabilities as working.
   was published 2026-10-23; the existing illustration remains unchanged.
   Search and booking execute SQL over synthetic schedules, with no scripted fallback.
 - Use the app's managed identity for the deployed read/write verification.
+- `<start-server>`, `<network-server>`, and `<network-app>` stand for the
+  `sql-caldova-start-<suffix>`, `sql-caldova-network-<suffix>`, and
+  `app-caldova-network-<suffix>` resources in `caldova-network-rg`. Real names
+  stay in git-ignored `app\appsettings.Local.json`; see
+  [Private local configuration](README.md#private-local-configuration).
 
 ## Part 1 - Start with Hyperscale
 
@@ -76,8 +81,8 @@ Use this prompt:
 > morning, with nights and weekends idle. We need automatic compute scaling,
 > low idle cost, and room to grow without sizing storage. A short wake-up
 > delay is fine. Use the currently logged-in Azure user and subscription,
-> resource group `caldova-network-rg`, and existing server
-> `sql-caldova-start-0efc44`.
+> resource group `caldova-network-rg`, and the existing Start server
+> (`sql-caldova-start-*`) in it.
 > Recommend a configuration, state assumptions, and show the plan for approval
 > before deploying.
 
@@ -136,7 +141,7 @@ For off-camera preparation of missing resources, use the
 `deploy\00-prepare-part1.ps1` (preview, approval, then apply). This creates the
 resource group and Start server only. For a fresh Scene 2 deployment, use the
 [database-only reset prompt](prompts/off-camera-reset-scene2.md) and
-`deploy\10-reset-part1.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf`.
+`deploy\10-reset-part1.ps1 -ExpectedServerName <start-server> -WhatIf`.
 Deletion requires separate approval before applying without `-WhatIf` and with
 `-Confirm:$false`. No Grow databases, servers, pool, or resource group are deleted.
 
@@ -221,7 +226,7 @@ fallback at `/serverless-illustration` explicitly illustrates 1 -> 4 -> 1 ->
 paused -> resumed. Its complete cycle has been verified in standalone Edge.
 Never describe that curve as actual SQL telemetry.
 Use the published scene at
-<https://app-caldova-network-0efc44.azurewebsites.net/serverless-illustration>.
+`https://<network-app>.azurewebsites.net/serverless-illustration`.
 The measured page and illustration are separate routes of the same app;
 only one presentation window is needed.
 
@@ -353,7 +358,7 @@ postconditions to pass.
 In the Azure portal, open the pool directly:
 
 1. Resource group `caldova-network-rg`.
-2. Server `sql-caldova-network-0efc44`.
+2. Server `<network-server>`.
 3. Hyperscale pool `caldova-network-pool`.
 4. Confirm all three scheduling databases are pooled and online.
 5. Inspect actual pool capacity; no app-generated metrics are shown.

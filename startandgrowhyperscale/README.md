@@ -98,7 +98,7 @@ approval guard; its live workload and growth have not been run for this change.
 [13-rehearse-pool-growth.ps1](deploy/13-rehearse-pool-growth.ps1):
 
 ```powershell
-.\startandgrowhyperscale\deploy\13-rehearse-pool-growth.ps1 -ExpectedServerName sql-caldova-network-0efc44 -IncludeGrowth -WhatIf
+.\startandgrowhyperscale\deploy\13-rehearse-pool-growth.ps1 -ExpectedServerName <network-server> -IncludeGrowth -WhatIf
 ```
 
 After explicit approval, run without `-WhatIf` (`-Confirm:$false` only after
@@ -216,7 +216,7 @@ Preview [12-reset-demo-storage.ps1](deploy/12-reset-demo-storage.ps1), then obta
 explicit approval before applying:
 
 ```powershell
-.\startandgrowhyperscale\deploy\12-reset-demo-storage.ps1 -ExpectedServerName sql-caldova-network-0efc44 -WhatIf
+.\startandgrowhyperscale\deploy\12-reset-demo-storage.ps1 -ExpectedServerName <network-server> -WhatIf
 ```
 
 The reset truncates only `demo.StoragePayload`, waits for page deallocation,
@@ -276,7 +276,7 @@ five minutes of expiry, avoiding repeated concurrent Azure CLI cache access.
 Authentication errors still stop the run explicitly; no retry, sign-in,
 credential-cache deletion, or unencrypted-cache fallback is performed.
 
-The initial live fill on `sql-caldova-network-0efc44` is verified: Caldova
+The initial live fill on `<network-server>` is verified: Caldova
 18.000, Northbrook 12.000, Ridgeview 15.000 GiB used, each with 20.000 GiB
 allocated. Files grew from 10 to 20 GiB allocated during the fill. This proves
 initial storage growth under the CLI identity, not Step 4 growth under CPU load
@@ -302,7 +302,7 @@ dotnet run --project .\startandgrowhyperscale\tests\CaldovaNetworkScheduling.Che
 ### Published serverless illustration
 
 The updated package is published to the existing App Service. Launch
-<https://app-caldova-network-0efc44.azurewebsites.net/serverless-illustration>
+`https://<network-app>.azurewebsites.net/serverless-illustration`
 for the approved, explicitly labeled scripted scene.
 The measured page remains at `/`; these are two routes of one deployed app.
 `Demo__Mode=Measured` is the startup compatibility setting, not a claim that
@@ -320,10 +320,10 @@ bar chart still requires the presenter to set and verify the intended view.
 
 | | |
 |---|---|
-| URL | <https://app-caldova-network-0efc44.azurewebsites.net> |
+| URL | `https://<network-app>.azurewebsites.net` |
 | Resource group | `caldova-network-rg` (currently signed-in Azure subscription) |
-| App Service | `app-caldova-network-0efc44` on Windows S1 plan `asp-caldova-network-0efc44`, East US 2 |
-| Logical server | `sql-caldova-network-0efc44.database.windows.net` — **East US 2**, Microsoft Entra-only auth, public endpoint + firewall |
+| App Service | `<network-app>` on Windows S1 plan `asp-caldova-network-<suffix>`, East US 2 |
+| Logical server | `<network-server>.database.windows.net` — **East US 2**, Microsoft Entra-only auth, public endpoint + firewall |
 | Elastic pool | `caldova-network-pool` — Hyperscale, 8 vCores, on the same logical server; **empty** for now |
 | Databases | `caldova-scheduling` (serverless `HS_S_Gen5_8`, 1–8 vCores, auto-pause 60 min), `northbrook-scheduling` (provisioned `HS_Gen5_2`), `ridgeview-scheduling` (provisioned `HS_Gen5_4`) — all standalone |
 
@@ -608,7 +608,8 @@ Verify that an actual capture reaches the desired CPU peak and declines before
 using it for recording; the workload schedule alone is not measured proof.
 Another 30 seconds observes trailing SQL samples. Startup and in-flight batches
 can add time; late telemetry may not include a final zero within this window.
-The separate post-resume observation remains 75 seconds, and Azure auto-pause
+The separate resume sequence holds four workers until manual Stop, without a
+sign-out phase. It retains a ten-minute workload safety limit. Azure auto-pause
 remains 60 minutes. The 195-second timing is offline-tested; its real peak,
 sample delivery, and decline still require live verification.
 
@@ -633,11 +634,28 @@ for auto-pause without starting more SQL work.
 Staff counts are not CPU-used vCores, and a 15-second average may
 span a transition; exact 1/2/6/8 CPU readings or matching CPU direction at every
 step are not guaranteed. Missing intervals are never filled or synthesized.
-The same interval alignment applies to post-resume activity.
+During post-resume load, staff and scheduling rows instead follow current
+connected workers and completed batches, so scheduling begins without waiting
+for the first 15-second CPU interval. CPU readings still retain their original
+sample timestamps; staff counts are not inferred from CPU usage.
 
-After sign-in, the app focuses the CPU plot on a separate 135-second resume
-window: 30 seconds of real baseline, 30 seconds of workload, and 75 seconds of
-trailing observation. This keeps the resume curve readable after a long pause
+After sign-in, the app focuses the CPU plot on a separate initial 60-second resume
+window, including 30 seconds of real baseline. Four-worker workload continues
+until manual **Stop**, with a ten-minute safety limit; the chart extends if needed.
+The first signing-in staff member remains visible while workers connect; badges
+then follow connected workers without flashing back to zero or being held at one.
+Once online, the schedule pane shows only scheduling rows from completed activity,
+not staff-count or status-message placeholders. Its patient rows are demo visuals,
+not real patient data or appointment writes.
+Manual Stop ends the workload and telemetry and holds the last verified
+four-staff interval. The held frame keeps the normal **Active**, **4 staff online**,
+**Live schedule**, and **vCores in use (CPU)** appearance, without a completion
+banner or recording labels. There is no resume sign-out or trailing-observation
+phase. This is a held frame for the recording, not continued workload or telemetry;
+four workers do not imply four vCores. Stop before a verified four-staff CPU
+interval returns the ordinary stopped view rather than inventing an ending.
+Reaching the safety limit without manual Stop reports an explicit error.
+This keeps the resume curve readable after a long pause
 instead of squeezing it against the right edge of a morning-to-evening chart.
 Earlier samples and their original timestamp gaps remain in the raw history;
 they are excluded only from the focused plot. No pause samples are invented.
@@ -950,7 +968,7 @@ New servers use the signed-in Entra user as administrator.
 For a fresh Scene 2 deployment, stop Start app/workload traffic and preview:
 
 ```powershell
-.\startandgrowhyperscale\deploy\10-reset-part1.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf
+.\startandgrowhyperscale\deploy\10-reset-part1.ps1 -ExpectedServerName <start-server> -WhatIf
 ```
 
 After explicit approval, repeat without `-WhatIf` and with `-Confirm:$false`.
@@ -979,7 +997,7 @@ The demo skill recognizes **Create the pool on the Start server**. Once all
 three Start databases exist, preview only the new pool:
 
 ```powershell
-.\startandgrowhyperscale\deploy\14-create-part1-pool.ps1 -ExpectedServerName sql-caldova-start-0efc44 -WhatIf
+.\startandgrowhyperscale\deploy\14-create-part1-pool.ps1 -ExpectedServerName <start-server> -WhatIf
 ```
 
 After explicit approval, repeat without `-WhatIf`. This creates only an empty
@@ -997,7 +1015,7 @@ and app configuration/connections remain unchanged. Do not run the broader
 Start pool membership is separately authorized and explicitly targeted:
 
 ```powershell
-.\startandgrowhyperscale\deploy\06-set-pool-membership.ps1 -Target Start -ExpectedServerName sql-caldova-start-0efc44 -Mode Pooled -WhatIf
+.\startandgrowhyperscale\deploy\06-set-pool-membership.ps1 -Target Start -ExpectedServerName <start-server> -Mode Pooled -WhatIf
 ```
 
 After approval for Caldova conversion and all three moves, use the same command
@@ -1069,8 +1087,11 @@ connections to the specified databases (no `USE` statements):
 6. Verify `sql\04-verify-read.sql` from Caldova using the application identity.
    Then use app steps 3 and 4 to verify actual reads and booking.
 
-Scripts use the current fixed database names and app identity
-`app-caldova-network-0efc44`. If porting, coordinate SQL files, the provider
+Scripts use the current fixed database names. The app identity name
+`<network-app>` (`app-caldova-network-<suffix>`) is supplied to `00-app-login.sql`
+and `03-app-permissions.sql` as SQLCMD variable `AppName` from `00-config.ps1`,
+and to `05-demo-storage.sql` by the app from private configuration.
+If porting, coordinate SQL files, the provider
 allowlist, source-catalog guard, connection settings, and portal instructions.
 Duplicate Entra display names require the documented Object ID login syntax;
 use the managed identity's object ID, not a client ID. No SQL login is needed.
@@ -1095,13 +1116,13 @@ access). `/healthz` checks application liveness only, never SQL readiness.
 
 Azure layout for measured mode (all in `caldova-network-rg`, deployed by `04-deploy-sql.ps1`):
 
-- Logical server `sql-caldova-network-0efc44`, East US 2, **public endpoint + firewall**.
+- Logical server `<network-server>`, East US 2, **public endpoint + firewall**.
   Microsoft Entra-only authentication is retained for the native cross-database preview.
 - `caldova-scheduling` — Hyperscale serverless `HS_S_Gen5_8`, min 1 vCore, auto-pause 60 min.
 - `northbrook-scheduling` (provisioned `HS_Gen5_2`), `ridgeview-scheduling` (provisioned
   `HS_Gen5_4`).
 - `caldova-network-pool` — Hyperscale elastic pool, 8 vCores, created empty.
-- Part 1 server `sql-caldova-start-0efc44` with its own serverless `caldova-scheduling`
+- Part 1 server `<start-server>` with its own serverless `caldova-scheduling`
   (deployed by `09-deploy-part1-sql.ps1`; see [Separate Part 1 serverless database](#separate-part-1-serverless-database)).
 - Every database and the pool use **Local** backup storage redundancy and **no** zone redundancy,
   so the databases can move into the pool later.
@@ -1211,6 +1232,28 @@ Azure and SQL dependency replaced by in-memory stand-ins
 
 The playback mode shows no on-screen marker. Disclose in narration that these segments are scripted.
 
+For a repeatable paused-to-resume retake without touching Azure, use:
+
+```powershell
+dotnet run --project .\startandgrowhyperscale\app\CaldovaNetworkScheduling.csproj --launch-profile resume-recording
+```
+
+This separate local app opens on `http://localhost:5096/` and starts Paused.
+The paused opening includes the standard **Clinic day complete. Staff activity
+complete.** banner; it clears when sign-in starts.
+Its header and five navigation steps match the live app; playback adds no
+extra Scale & Grow tab. The legacy playback `/pool` scene remains directly accessible.
+Click **Sign in (resume)** to show the approximately 14-second simulated wake-up,
+then four simulated workers until you click **Stop**. There is no 30-second
+automatic finish. Manual Stop holds the four-staff frame and corresponding CPU reading without
+showing staff signing out. Both simulation and live resume use the same
+initial 60-second focused chart and manual-stop behavior (ten-minute safety limit);
+the separate Run sequence is unchanged.
+The normal live/Grow app can remain running on its separate port.
+Restart this profile for another paused take; browser refresh alone does not reset
+the in-memory database. No Azure operations, SQL connections, billing measurements,
+or real booking writes occur. Health reports `playback` / `in-memory` explicitly.
+
 [tools/playback-recorder](tools/playback-recorder) records each sequence to its own native
 4K (3840×2160) MP4 at 125% zoom using your installed Edge. Pages are captured at full
 resolution (about 9 fps on a typical machine; numbers and charts update at that rate), and the
@@ -1261,6 +1304,46 @@ cd app
 dotnet run --launch-profile http    # http://localhost:5191, Part 2 server
 dotnet run --launch-profile part1   # http://localhost:5099, Part 1 server, measured load enabled
 ```
+
+Live launches also need the private server names described next.
+
+### Private local configuration
+
+Public files never name the live Azure resources. Docs use `<start-server>`,
+`<network-server>`, and `<network-app>` for `sql-caldova-start-<suffix>`,
+`sql-caldova-network-<suffix>`, and `app-caldova-network-<suffix>`. The deploy
+scripts compute `<suffix>` in `deploy\00-config.ps1` from the current
+subscription; `CALDOVA_PART1_SQL_SERVER`, `CALDOVA_NETWORK_SQL_SERVER`, and
+`CALDOVA_NETWORK_APP_NAME` override the names. To see the real names, list them
+read-only:
+
+```powershell
+az sql server list --resource-group caldova-network-rg --query "[?starts_with(name, 'sql-caldova-')].name" --output tsv
+```
+
+Tracked `appsettings.json` and `launchSettings.json` use the placeholders
+`{network-server}` and `{start-server}` in `ConnectionStrings:Scheduling` and
+`ServerlessMonitor:ResourceId`. The app fills them at startup from, in order of
+precedence, command line, environment, .NET user-secrets (Development), then the
+git-ignored `app\appsettings.Local.json` (never published):
+
+```json
+{
+  "Azure": {
+    "NetworkSqlServer": "sql-caldova-network-<suffix>",
+    "StartSqlServer": "sql-caldova-start-<suffix>",
+    "AppName": "app-caldova-network-<suffix>"
+  }
+}
+```
+
+`Azure:NetworkSqlServer`/`Azure:StartSqlServer` fall back to
+`CALDOVA_NETWORK_SQL_SERVER`/`CALDOVA_PART1_SQL_SERVER`. `Azure:AppName` (or
+`CALDOVA_NETWORK_APP_NAME`; `WEBSITE_SITE_NAME` on App Service) is used only by
+the storage-seeding grants. In live mode an unresolved or invalid placeholder
+stops startup with a message naming the missing setting; it never targets a
+default server. Playback and replay substitute harmless offline names and need
+no private values. Deployed App Service settings carry complete values.
 
 ### Separate Part 1 serverless database
 

@@ -43,11 +43,14 @@ comments.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for how to report security issues.
+See [SECURITY.md](SECURITY.md) for how to report security issues. For help, see
+[SUPPORT.md](SUPPORT.md).
 
 ## License
 
-Licensed under the [MIT License](LICENSE).
+Licensed under the [MIT License](LICENSE). The curated PubMed Central article corpus is
+third-party content under CC BY 4.0; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
+for attribution.
 
 ## Trademarks
 

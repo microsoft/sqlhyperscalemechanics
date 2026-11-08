@@ -25,11 +25,14 @@ if (args is ["--rehearse-pool"])
     return;
 }
 var builder = WebApplication.CreateBuilder(args);
+DemoResourceNames.AddLocalSettings(builder.Configuration, builder.Environment);
 
 var demoMode = builder.Configuration["Demo:Mode"] ?? "Measured";
+var demoPlayback = builder.Configuration.GetValue<bool>("Demo:Playback");
 var serverlessRecording = ServerlessRecordingSettings.Read(builder.Configuration, builder.Environment.ContentRootPath);
+DemoResourceNames.Apply(builder.Configuration, serverlessRecording.IsReplay || demoPlayback);
 builder.Configuration["ServerlessMonitor:ResourceId"] = ServerlessMonitor.ResolveConfiguredResourceId(
-    builder.Configuration, serverlessRecording.IsReplay || builder.Configuration.GetValue<bool>("Demo:Playback"));
+    builder.Configuration, serverlessRecording.IsReplay || demoPlayback);
 PoolScaler.ValidateHost(builder.Configuration);
 if (!string.Equals(demoMode, "Measured", StringComparison.OrdinalIgnoreCase))
 {
@@ -51,7 +54,7 @@ builder.Services.AddScoped<ServerlessRunRecording>();
 builder.Services.AddScoped<PoolPresentation>();
 
 // Playback replaces every Azure and SQL dependency with in-memory stand-ins for recording backup clips.
-if (builder.Configuration.GetValue<bool>("Demo:Playback"))
+if (demoPlayback)
 {
     builder.Services.AddSingleton<PlaybackDatabase>();
     builder.Services.AddSingleton<PlaybackPool>();
@@ -88,8 +91,9 @@ if (!app.Environment.IsDevelopment())
 app.UseStaticFiles();
 app.UseAntiforgery();
 
-app.MapGet("/healthz", () => Results.Json(new { status = "ok", mode = serverlessRecording.IsReplay ? "replay" : "measured",
-    serverless = serverlessRecording.IsReplay ? "saved-sql-dmv" : "sql-dmv", appointments = "sql",
+app.MapGet("/healthz", () => Results.Json(new { status = "ok", mode = demoPlayback ? "playback" : serverlessRecording.IsReplay ? "replay" : "measured",
+    serverless = demoPlayback ? "in-memory" : serverlessRecording.IsReplay ? "saved-sql-dmv" : "sql-dmv",
+    appointments = demoPlayback ? "in-memory" : "sql",
     serverlessCapture = serverlessRecording.CaptureEnabled,
     poolPresentation = builder.Configuration.GetValue<bool>("PoolPresentation:Enabled") ? "illustration" : "disabled" }));
 

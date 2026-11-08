@@ -6,8 +6,8 @@ $account = Invoke-Az @('account', 'show', '--output', 'json')
 if ($account.id -ne $SubscriptionId) {
     throw 'The configured subscription must match the currently signed-in Azure CLI subscription.'
 }
-if ($SqlServerName -ne 'sql-caldova-network-0efc44' -or $CaldovaDatabase -ne 'caldova-scheduling') {
-    throw 'These read-only fixtures and baseline comparison target the current Grow server and databases.'
+if ($SqlServerName -notlike 'sql-caldova-network-*' -or $CaldovaDatabase -ne 'caldova-scheduling') {
+    throw 'These read-only fixtures and baseline comparison target the Grow sql-caldova-network-* server and databases.'
 }
 $pool = Invoke-Az @('sql', 'elastic-pool', 'show', '--resource-group', $ResourceGroup,
     '--server', $SqlServerName, '--name', $ElasticPoolName, '--output', 'json')

@@ -1,4 +1,4 @@
-# Demo 2 stage script
+# Caldova Research stage script
 
 **Target length:** 1:50 to 2:00
 **Optional named-replica extension:** 20 seconds
@@ -6,9 +6,9 @@
 
 ## Preflight
 
-- Open the app and confirm `4K`, `1M`, and `Named Replica` report `Live ready`.
-- Run the stage question once on `4K` and `1M` so both plans are warm.
-- Confirm the app opens on `1M`, then leave `4K`, `Hybrid`, and the Evidence tab selected.
+- Open the app and confirm `3K`, `1M`, and `Named Replica` report `Live ready`.
+- Run the stage question once on `3K` and `1M` so both plans are warm.
+- Confirm the app opens on `1M`, then leave `3K`, `Hybrid`, and the Evidence tab selected.
 - Speak only latency numbers that appear in a retained report.
 
 ## Live script
@@ -22,8 +22,8 @@ vector index over it all. Let's see how this one search stays steady as the app 
 
 **0:22 | Evidence tab, run the stage question**
 
-"Let's ask it a detailed question about sleep disruption, insulin resistance, and glucose
-regulation. Let's also filter to peer-reviewed sources only.
+"Let's ask it a detailed question about periodontal inflammation, blood pressure, and
+cardiovascular risk. Let's also filter to peer-reviewed sources only.
 
 This isn't just a keyword match. The meaning is what gets searched, and every answer links
 back to its article."
@@ -36,9 +36,9 @@ This is hybrid: vector search finds meaning with filters applied inside that sea
 keyword search finds exact strings such as gene names or drug codes, and then we merge the
 rankings with reciprocal rank fusion. The timing shown is measured inside the engine."
 
-**1:08 | Return to Evidence, keep 4K selected**
+**1:08 | Return to Evidence, keep 3K selected**
 
-"This 4K pilot is Hyperscale serverless. It autoscales between the minimum and maximum
+"This 3K pilot is Hyperscale serverless. It autoscales between the minimum and maximum
 vCores I set, and it auto-pauses after one hour of inactivity. When the app isn't being
 used, I'm not getting billed for compute.
 
