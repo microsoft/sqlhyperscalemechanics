@@ -608,7 +608,8 @@ Verify that an actual capture reaches the desired CPU peak and declines before
 using it for recording; the workload schedule alone is not measured proof.
 Another 30 seconds observes trailing SQL samples. Startup and in-flight batches
 can add time; late telemetry may not include a final zero within this window.
-The separate post-resume observation remains 75 seconds, and Azure auto-pause
+The separate resume sequence holds four workers until manual Stop, without a
+sign-out phase. It retains a ten-minute workload safety limit. Azure auto-pause
 remains 60 minutes. The 195-second timing is offline-tested; its real peak,
 sample delivery, and decline still require live verification.
 
@@ -633,11 +634,28 @@ for auto-pause without starting more SQL work.
 Staff counts are not CPU-used vCores, and a 15-second average may
 span a transition; exact 1/2/6/8 CPU readings or matching CPU direction at every
 step are not guaranteed. Missing intervals are never filled or synthesized.
-The same interval alignment applies to post-resume activity.
+During post-resume load, staff and scheduling rows instead follow current
+connected workers and completed batches, so scheduling begins without waiting
+for the first 15-second CPU interval. CPU readings still retain their original
+sample timestamps; staff counts are not inferred from CPU usage.
 
-After sign-in, the app focuses the CPU plot on a separate 135-second resume
-window: 30 seconds of real baseline, 30 seconds of workload, and 75 seconds of
-trailing observation. This keeps the resume curve readable after a long pause
+After sign-in, the app focuses the CPU plot on a separate initial 60-second resume
+window, including 30 seconds of real baseline. Four-worker workload continues
+until manual **Stop**, with a ten-minute safety limit; the chart extends if needed.
+The first signing-in staff member remains visible while workers connect; badges
+then follow connected workers without flashing back to zero or being held at one.
+Once online, the schedule pane shows only scheduling rows from completed activity,
+not staff-count or status-message placeholders. Its patient rows are demo visuals,
+not real patient data or appointment writes.
+Manual Stop ends the workload and telemetry and holds the last verified
+four-staff interval. The held frame keeps the normal **Active**, **4 staff online**,
+**Live schedule**, and **vCores in use (CPU)** appearance, without a completion
+banner or recording labels. There is no resume sign-out or trailing-observation
+phase. This is a held frame for the recording, not continued workload or telemetry;
+four workers do not imply four vCores. Stop before a verified four-staff CPU
+interval returns the ordinary stopped view rather than inventing an ending.
+Reaching the safety limit without manual Stop reports an explicit error.
+This keeps the resume curve readable after a long pause
 instead of squeezing it against the right edge of a morning-to-evening chart.
 Earlier samples and their original timestamp gaps remain in the raw history;
 they are excluded only from the focused plot. No pause samples are invented.
@@ -1210,6 +1228,28 @@ Azure and SQL dependency replaced by in-memory stand-ins
   while compute stays fixed. This beat is not built in live mode.
 
 The playback mode shows no on-screen marker. Disclose in narration that these segments are scripted.
+
+For a repeatable paused-to-resume retake without touching Azure, use:
+
+```powershell
+dotnet run --project .\startandgrowhyperscale\app\CaldovaNetworkScheduling.csproj --launch-profile resume-recording
+```
+
+This separate local app opens on `http://localhost:5096/` and starts Paused.
+The paused opening includes the standard **Clinic day complete. Staff activity
+complete.** banner; it clears when sign-in starts.
+Its header and five navigation steps match the live app; playback adds no
+extra Scale & Grow tab. The legacy playback `/pool` scene remains directly accessible.
+Click **Sign in (resume)** to show the approximately 14-second simulated wake-up,
+then four simulated workers until you click **Stop**. There is no 30-second
+automatic finish. Manual Stop holds the four-staff frame and corresponding CPU reading without
+showing staff signing out. Both simulation and live resume use the same
+initial 60-second focused chart and manual-stop behavior (ten-minute safety limit);
+the separate Run sequence is unchanged.
+The normal live/Grow app can remain running on its separate port.
+Restart this profile for another paused take; browser refresh alone does not reset
+the in-memory database. No Azure operations, SQL connections, billing measurements,
+or real booking writes occur. Health reports `playback` / `in-memory` explicitly.
 
 [tools/playback-recorder](tools/playback-recorder) records each sequence to its own native
 4K (3840×2160) MP4 at 125% zoom using your installed Edge. Pages are captured at full

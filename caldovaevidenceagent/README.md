@@ -27,6 +27,9 @@ Browser
 
 See `architecture.svg` for the complete diagram.
 
+See [architecture animation](animation/README.md) for a reproducible 30-second,
+silent 4K video with animated data flows and no captions.
+
 ## What Gets Deployed
 
 - One resource group

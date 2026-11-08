@@ -4,7 +4,7 @@ namespace CaldovaNetworkScheduling.Services;
 
 /// <summary>
 /// Projects a measured SQL run onto the Patient Access scene. Staff online equals the actual number of
-/// active SQL workers at the displayed CPU interval's midpoint; schedule entries are illustrative
+/// active SQL workers at the displayed CPU interval's midpoint (or current workers during resume); schedule entries are illustrative
 /// and advance only while SQL batches are completing.
 /// vCores and the chart come only from SQL DMV samples, never from this class.
 /// </summary>
@@ -127,12 +127,12 @@ public sealed class MeasuredClinicScene
 
     public ScaleSnapshot Snapshot(bool running, bool complete, DateTimeOffset now, DateTimeOffset? start, TimeSpan planned,
         IReadOnlyList<ServerlessCpuSample> samples, ServerlessConfiguration? database, string statusDetail,
-        ServerlessStatus? azureStatus = null)
+        ServerlessStatus? azureStatus = null, bool alignActivityToCpu = true)
     {
         var origin = start ?? now;
         var points = samples.Select(s => new ScaleSample((s.At - origin).TotalSeconds, 0, s.UsedVCores, ServerlessStatus.Active)).ToArray();
         var total = Math.Max(planned.TotalSeconds, points.Length == 0 ? 0 : points[^1].ScriptSeconds);
-        var frame = presented is not null && samples.Count > 0 && IntervalEnd == samples[^1].At
+        var frame = alignActivityToCpu && presented is not null && samples.Count > 0 && IntervalEnd == samples[^1].At
             && azureStatus != ServerlessStatus.Resuming ? presented : CaptureFrame();
         var displayedUsers = (running || complete) && azureStatus is not (ServerlessStatus.Paused or ServerlessStatus.Resuming)
             ? frame.Users : users.ToArray();

@@ -22,6 +22,26 @@
         "ServerlessMonitor__EnableWorkload": "true"
       }
     },
+    "resume-recording": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5096",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Demo__Playback": "true",
+        "ServerlessRecording__Mode": "Live",
+        "ServerlessRecording__File": "",
+        "Playback__StartPaused": "true",
+        "Playback__AutoPauseSeconds": "60",
+        "Playback__ResumeSeconds": "14",
+        "PoolPresentation__Enabled": "false",
+        "PoolScaling__Enabled": "false",
+        "PoolGrowth__Enabled": "false",
+        "BookingReset__Enabled": "false",
+        "ServerlessMonitor__EnableWorkload": "true"
+      }
+    },
     "playback": {
       "commandName": "Project",
       "dotnetRunMessages": true,

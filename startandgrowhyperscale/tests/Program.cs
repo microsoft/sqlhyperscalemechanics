@@ -210,6 +210,13 @@ var layout = await RenderAsync<MainLayout>();
 foreach (var route in new[] { "/network", "/verify", "/scale", "/appointments" })
     Check(layout.Contains($"href=\"{route}\""), $"Navigation includes {route}");
 Check(!layout.Contains("SQL DMV") && !layout.Contains("mode-chip"), "Header has no data-source or mode labels");
+var originalPlayback = configuration["Demo:Playback"];
+configuration["Demo:Playback"] = "true";
+var playbackLayout = await RenderAsync<MainLayout>();
+configuration["Demo:Playback"] = originalPlayback;
+Check(playbackLayout == layout && !playbackLayout.Contains("3b") && !playbackLayout.Contains("href=\"/pool\"")
+    && System.Text.RegularExpressions.Regex.Matches(playbackLayout, "class=\"nav-step\"").Count == 5,
+    "Playback renders exactly the live header and five-step navigation, without a playback-only Scale & Grow tab");
 var acquisition = await RenderAsync<Overview>();
 Check(acquisition.Contains("page-header acquisitions-header"),
     "Acquisitions uses its own full-width subtitle styling without changing other page headers");
@@ -238,6 +245,7 @@ foreach (var label in new[] { "MEASURED", "measured vCores", "Measured.", "illus
 Check(!patientAccess.Contains("Next · Step 2"), "Serverless chapter ends independently");
 Check(patientAccess.Contains("staff online") && patientAccess.Contains("Each staff member runs this batch")
     && !patientAccess.Contains("Press Play"), "Staff map to SQL connections");
+await ResumeActivityChecks.CheckRenderingAsync(Check, renderer);
 Check(patientAccess.Contains("Load generation is disabled"), "SQL load is opt-in");
 var illustration = await renderer.Dispatcher.InvokeAsync(async () => (await renderer.RenderComponentAsync<Scale>(
     ParameterView.FromDictionary(new Dictionary<string, object?> { ["ForceScripted"] = true }))).ToHtmlString());
@@ -533,8 +541,10 @@ Check(demoRamp.StartAt(0) == TimeSpan.Zero && demoRamp.ActiveAt(TimeSpan.Zero) =
     && DemoField<TimeSpan>("planned") == TimeSpan.FromSeconds(195),
     "Serverless Run starts one worker immediately and plans 195 seconds including trailing telemetry");
 Check(DemoField<TimeSpan>("RunCooldown", true) == TimeSpan.FromSeconds(30)
-    && DemoField<TimeSpan>("Cooldown", true) == TimeSpan.FromSeconds(75),
-    "The gradual Run does not change the separate post-resume observation");
+    && DemoField<TimeSpan>("ResumeActivity", true) == TimeSpan.FromMinutes(10)
+    && typeof(Scale).GetField("Cooldown", System.Reflection.BindingFlags.NonPublic |
+        System.Reflection.BindingFlags.Static) is null,
+    "Run retains trailing observation while resume waits for manual Stop with a ten-minute workload safety limit");
 Check(Enumerable.Range(0, 10).All(i => demoRamp.StopAt(i) > demoRamp.StartAt(i))
     && demoRamp.StartAt(1) == TimeSpan.FromSeconds(15)
     && demoRamp.StartAt(2) == TimeSpan.FromSeconds(30) && demoRamp.StartAt(5) == TimeSpan.FromSeconds(30)

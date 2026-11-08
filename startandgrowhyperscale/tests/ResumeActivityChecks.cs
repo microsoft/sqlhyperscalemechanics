@@ -6,12 +6,54 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 internal static class ResumeActivityChecks
 {
+    public static async Task CheckRenderingAsync(Action<bool, string> check,
+        Microsoft.AspNetCore.Components.Web.HtmlRenderer renderer)
+    {
+        async Task<string> RenderAsync(bool connected, bool completed, bool paused = false) =>
+            await renderer.Dispatcher.InvokeAsync(async () =>
+                (await renderer.RenderComponentAsync<ResumeView>(
+                    Microsoft.AspNetCore.Components.ParameterView.FromDictionary(
+                        new Dictionary<string, object?> { ["Connected"] = connected, ["Completed"] = completed, ["Paused"] = paused }))).ToHtmlString());
+
+        var paused = await RenderAsync(false, false, true);
+        check(paused.Contains("callout-done") && paused.Contains("Clinic day complete.")
+            && paused.Contains("Staff activity complete.") && paused.Contains("Clinics are quiet"),
+            "The paused opening screen renders the standard clinic-day and staff-activity completion banner");
+        var connecting = await RenderAsync(false, false);
+        var empty = System.Text.RegularExpressions.Regex.Match(connecting,
+            "<div class=\"board-empty[^\"]*\">(?<contents>.*?)</div>",
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+        check(empty.Success && string.IsNullOrWhiteSpace(System.Text.RegularExpressions.Regex.Replace(
+                empty.Groups["contents"].Value, "<!--.*?-->", "")),
+            "Online resume renders an empty schedule until activity arrives, with no status or staff-count placeholder");
+        check(!connecting.Contains("callout-done") && !connecting.Contains("Clinic day complete."),
+            "The clinic-day completion banner clears when the resumed database is online");
+        var working = await RenderAsync(true, false);
+        var boardStart = working.IndexOf("<div class=\"board\">", StringComparison.Ordinal);
+        var boardEnd = working.IndexOf("<aside", boardStart, StringComparison.Ordinal);
+        var board = working[boardStart..boardEnd];
+        check(board.Contains("board-row") && board.Contains("avatar-xs") && !board.Contains("board-empty")
+            && !board.Contains("Staff activity") && !board.Contains("staff signed in") && !board.Contains("Staff working"),
+            "Online resume renders only live scheduling rows in its board before CPU telemetry is available");
+        check(working.Contains("<strong>4</strong>") && working.Contains("staff online"),
+            "Rendered resume badges show the four connected staff rather than a forced single staff member");
+        var completed = await RenderAsync(true, true);
+        check(completed.Contains("Live schedule") && completed.Contains("vCores in use (CPU)")
+            && completed.Contains(">Active</strong>") && completed.Contains("staff online")
+            && completed.Contains("board-row") && !completed.Contains("callout-done")
+            && !completed.Contains("Recorded peak") && !completed.Contains("staff at peak")
+            && !completed.Contains("Recorded schedule") && !completed.Contains("last CPU used"),
+            "The completed resume renders the normal live-app appearance with scheduling rows and no recording banner");
+    }
+
     public static async Task RunAsync(Action<bool, string> check, IConfiguration configuration)
     {
         CheckIntervalAlignment(check);
         CheckPatientActivityAlignment(check);
         CheckLiveElapsedClock(check);
         CheckCompletedLiveScene(check);
+        CheckResumeStartup(check);
+        await CheckResumeCompletionAsync(check, configuration);
         await CheckRunControlsAsync(check, configuration);
         foreach (var scenario in new[] { "enabled", "fresh", "disabled", "failed" })
         {
@@ -47,8 +89,8 @@ internal static class ResumeActivityChecks
                 if (scenario is "enabled" or "fresh")
                 {
                     check(signIn.Succeeded && workload.Starts == 1 && workload.Workers == 4
-                        && workload.Duration == TimeSpan.FromSeconds(30),
-                        "A successful sign-in starts exactly four workers for 30 seconds");
+                        && workload.Duration == TimeSpan.FromMinutes(10),
+                        "A successful sign-in starts four workers until manual Stop, bounded by the ten-minute safety limit");
                     var samples = (IReadOnlyList<ServerlessCpuSample>)Field("samples").GetValue(page)!;
                     check(scenario == "fresh" ? samples.Count == 2 :
                         samples.Count == 5 && samples.Take(3).SequenceEqual(oldSamples) && samples[3].At > oldSample.At.AddHours(1),
@@ -56,9 +98,9 @@ internal static class ResumeActivityChecks
                     check(samples[^2].CpuPercent == 0 && samples[^1].CpuPercent > 0
                         && samples[^1].At - samples[^2].At == TimeSpan.FromSeconds(15),
                         "A real baseline and rising CPU sample form a visible segment for the short resume burst");
-                    check((TimeSpan)Field("planned").GetValue(page)! == TimeSpan.FromSeconds(135)
+                    check((TimeSpan)Field("planned").GetValue(page)! == TimeSpan.FromSeconds(60)
                         && (DateTimeOffset)Field("resumeChartStart").GetValue(page)! <= DateTimeOffset.UtcNow.AddSeconds(-30),
-                        "Both fresh and existing pages focus resume on the 135-second baseline/activity/cooldown window");
+                        "Both fresh and existing pages focus resume on the 60-second baseline/activity window");
                     check(Field("phase").GetValue(page)!.ToString() == "Load", "Resume activity enters the normal measured load phase");
                     check(Field("elapsedEnd").GetValue(page) is null,
                         "A new resume activity unfreezes the elapsed clock without changing its origin");
@@ -72,7 +114,7 @@ internal static class ResumeActivityChecks
                     var sx = typeof(Scale).GetMethod("SX", BindingFlags.NonPublic | BindingFlags.Instance)!;
                     var latestSegment = plotted[^1];
                     check((double)sx.Invoke(page, [chartStart])! == 0
-                        && Math.Abs((double)sx.Invoke(page, [chartStart + 135])! - 300) < 0.000001
+                        && Math.Abs((double)sx.Invoke(page, [chartStart + 60])! - 300) < 0.000001
                         && (double)sx.Invoke(page, [latestSegment[^1].ScriptSeconds])!
                             - (double)sx.Invoke(page, [latestSegment[0].ScriptSeconds])! >= 30,
                         "A 15-second resume rise spans at least 30 of 300 chart pixels, even after a two-hour pause");
@@ -82,7 +124,11 @@ internal static class ResumeActivityChecks
                         && (scenario == "fresh" || chartSnapshot.Samples[0].ScriptSeconds
                             == (oldSamples[0].At - (DateTimeOffset)Field("runStart").GetValue(page)!).TotalSeconds),
                         "The focused resume plot excludes old segments without removing or retiming the original samples");
-                    var rawSamples = new[] { samples[^2], samples[^1] with { CpuPercent = 3.25 } };
+                    var rawSamples = new[] { samples[^2] with { At = workload.Snapshot.Started!.Value }, samples[^1] with
+                    {
+                        At = workload.Snapshot.Started!.Value.AddSeconds(15),
+                        CpuPercent = 3.25,
+                    } };
                     Field("samples").SetValue(page, rawSamples);
                     typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
                     var readout = typeof(Scale).GetProperty("Readout", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page);
@@ -148,6 +194,147 @@ internal static class ResumeActivityChecks
                 .GetValue(clockPage)! == "00:00:00",
             "Reset returns the elapsed clock to zero");
         ((CancellationTokenSource)Field("lifetime").GetValue(clockPage)!).Dispose();
+    }
+
+    private static void CheckResumeStartup(Action<bool, string> check)
+    {
+        var page = CreatePage();
+        var start = DateTimeOffset.UtcNow;
+        var scene = (MeasuredClinicScene)Field("scene").GetValue(page)!;
+        var refresh = typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var observe = typeof(Scale).GetMethod("ObserveWorkload", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        try
+        {
+            scene.Update(start, 1, 0);
+            Field("phase").SetValue(page, Enum.Parse(Field("phase").FieldType, "Load"));
+            Field("resumeChartStart").SetValue(page, start.AddSeconds(-30));
+            Field("samples").SetValue(page, new[] { new ServerlessCpuSample(start, 0, 8) });
+            Field("load").SetValue(page, new SqlWorkloadSnapshot(true, 4, 0, 0, start, null, null, 0));
+            observe.Invoke(page, null);
+            refresh.Invoke(page, null);
+            var pending = (CaldovaNetworkScheduling.Models.ScaleSnapshot)Field("snap").GetValue(page)!;
+            check(pending.ActiveUsers == 1 && pending.Users.Count == 1 && pending.Activity.Count == 0,
+                "Resume retains one signing-in staff member while connections and CPU telemetry are pending");
+            Field("load").SetValue(page, new SqlWorkloadSnapshot(true, 4, 10, 0, start, null, null, 4));
+            observe.Invoke(page, null);
+            refresh.Invoke(page, null);
+            pending = (CaldovaNetworkScheduling.Models.ScaleSnapshot)Field("snap").GetValue(page)!;
+            check(pending.ActiveUsers == 4 && pending.Users.Count == 4
+                && (string)typeof(Scale).GetProperty("Readout", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)! == "1.00",
+                "Resume badges follow the four connected workers while CPU telemetry is still pending");
+            scene.Observe(start.AddSeconds(3), new(true, 4, 20, 0, start, null, null, 4));
+            refresh.Invoke(page, null);
+            pending = (CaldovaNetworkScheduling.Models.ScaleSnapshot)Field("snap").GetValue(page)!;
+            check(pending.ActiveUsers == 4 && pending.Activity.Count > 0
+                && pending.Activity.All(activity => activity.StaffId <= pending.ActiveUsers),
+                "Resume scheduling rows advance from completed batches before the first CPU interval arrives");
+            Field("samples").SetValue(page, new[] { new ServerlessCpuSample(start.AddSeconds(15), 40, 8) });
+            refresh.Invoke(page, null);
+            var working = (CaldovaNetworkScheduling.Models.ScaleSnapshot)Field("snap").GetValue(page)!;
+            check(working.ActiveUsers == 4 && working.Users.Count == 4
+                && (string)typeof(Scale).GetProperty("Readout", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)! == "3.25",
+                "Resume keeps connected staff and scheduling activity visible when the first CPU interval arrives");
+        }
+        finally
+        {
+            ((CancellationTokenSource)Field("lifetime").GetValue(page)!).Dispose();
+        }
+    }
+
+    private static async Task CheckResumeCompletionAsync(Action<bool, string> check, IConfiguration configuration)
+    {
+        foreach (var verified in new[] { true, false })
+        {
+            var page = CreatePage();
+            var start = DateTimeOffset.UtcNow.AddSeconds(-30);
+            var scene = (MeasuredClinicScene)Field("scene").GetValue(page)!;
+            var workload = new Workload(configuration, new SignIn(configuration));
+            workload.HoldActive(start);
+            var sample = new ServerlessCpuSample(start.AddSeconds(30), verified ? 45 : 0, 8);
+            var refresh = typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var lifetime = (CancellationTokenSource)Field("lifetime").GetValue(page)!;
+            Set(page, "Workload", workload);
+            Set(page, "Logger", NullLogger<Scale>.Instance);
+            scene.Observe(start, new(true, 4, 0, 0, start, null, null, 4));
+            scene.Observe(start.AddSeconds(20), new(true, 4, 30, 0, start, null, null, 4));
+            Field("phase").SetValue(page, Enum.Parse(Field("phase").FieldType, "Load"));
+            Field("resumeChartStart").SetValue(page, start.AddSeconds(-30));
+            Field("runStart").SetValue(page, start.AddSeconds(-30));
+            Field("samples").SetValue(page, new[] { sample });
+            using var run = new CancellationTokenSource();
+            Field("run").SetValue(page, run);
+            var polling = WaitForCancellationAsync(run.Token);
+            Field("polling").SetValue(page, polling);
+            var watcher = (Task)typeof(Scale).GetMethod("WatchResumeActivityAsync",
+                BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, [run.Token])!;
+            Field("runTask").SetValue(page, watcher);
+            try
+            {
+                check(!watcher.IsCompleted && workload.Snapshot.Running
+                    && Field("phase").GetValue(page)!.ToString() == "Load",
+                    "Resume remains running at four staff after thirty seconds until manual Stop");
+                await ((Task)typeof(Scale).GetMethod("StopAsync",
+                    BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null)!).WaitAsync(TimeSpan.FromSeconds(2));
+                refresh.Invoke(page, null);
+                var snapshot = (CaldovaNetworkScheduling.Models.ScaleSnapshot)Field("snap").GetValue(page)!;
+                check(!workload.Snapshot.Running && watcher.IsCompleted && polling.IsCompleted,
+                    "Manual Stop stops resume workers and joins telemetry and observation");
+                if (!verified)
+                {
+                    check(Field("phase").GetValue(page)!.ToString() == "Stopped"
+                        && !snapshot.IsComplete && Field("error").GetValue(page) is null,
+                        "Stopping before a positive four-staff CPU interval returns the ordinary stopped view without inventing a peak");
+                    continue;
+                }
+                check(Field("phase").GetValue(page)!.ToString() == "ResumeComplete"
+                    && snapshot.IsComplete && !snapshot.IsRunning && snapshot.ActiveUsers == 4
+                    && snapshot.Users.Count == 4 && snapshot.Activity.Count > 0 && snapshot.VCores == sample.UsedVCores,
+                    "Manual Stop holds the four-staff frame without a sign-out or cooldown phase");
+                check(!(bool)typeof(Scale).GetProperty("HistoricalCpu", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!
+                    && (string)typeof(Scale).GetProperty("StatusLabel", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)! == "Active"
+                    && !(bool)typeof(Scale).GetProperty("SigningOutWithCpu", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!
+                    && (string)typeof(Scale).GetProperty("Readout", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)! == "3.75"
+                    && (string)typeof(Scale).GetProperty("StatusDetail", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!
+                        == "Staff working · 4 staff signed in",
+                    "The held resume ending retains the normal Active, live-schedule appearance without recording labels or sign-out");
+                Field("armStatus").SetValue(page, "Paused");
+                refresh.Invoke(page, null);
+                var held = (CaldovaNetworkScheduling.Models.ScaleSnapshot)Field("snap").GetValue(page)!;
+                check(held.ActiveUsers == 4 && held.VCores == sample.UsedVCores
+                    && held.Activity.SequenceEqual(snapshot.Activity),
+                    "Later Azure pause does not replace the explicitly recorded resume ending");
+                typeof(Scale).GetMethod("ResetMeasured", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
+                refresh.Invoke(page, null);
+                check(Field("phase").GetValue(page)!.ToString() == "Ready"
+                    && ((CaldovaNetworkScheduling.Models.ScaleSnapshot)Field("snap").GetValue(page)!).ActiveUsers == 0,
+                    "Reset clears the held resume frame for a new take");
+            }
+            finally
+            {
+                lifetime.Cancel();
+                if (!run.IsCancellationRequested) run.Cancel();
+                await watcher;
+                await polling;
+                lifetime.Dispose();
+            }
+        }
+        var limitedPage = CreatePage();
+        Set(limitedPage, "Workload", new Workload(configuration, new SignIn(configuration)));
+        Set(limitedPage, "Logger", NullLogger<Scale>.Instance);
+        var limitedLifetime = (CancellationTokenSource)Field("lifetime").GetValue(limitedPage)!;
+        try
+        {
+            limitedLifetime.Cancel();
+            await (Task)typeof(Scale).GetMethod("WatchResumeActivityAsync",
+                BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(limitedPage, [CancellationToken.None])!;
+            check(Field("phase").GetValue(limitedPage)!.ToString() == "Failed"
+                && Field("error").GetValue(limitedPage) is string message && message.Contains("10-minute safety limit"),
+                "A non-manual resume stop surfaces the safety-limit error instead of silently completing the shot");
+        }
+        finally
+        {
+            limitedLifetime.Dispose();
+        }
     }
 
     private static void CheckCompletedLiveScene(Action<bool, string> check)
@@ -537,6 +724,36 @@ internal static class ResumeActivityChecks
     private static void Set(Scale page, string name, object value) =>
         typeof(Scale).GetProperty(name, BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, value);
 
+    public sealed class ResumeView : Scale
+    {
+        [Microsoft.AspNetCore.Components.Parameter] public bool Connected { get; set; }
+        [Microsoft.AspNetCore.Components.Parameter] public bool Completed { get; set; }
+        [Microsoft.AspNetCore.Components.Parameter] public bool Paused { get; set; }
+
+        protected override void OnInitialized() { }
+        protected override void OnAfterRender(bool firstRender) { }
+        protected override void OnParametersSet()
+        {
+            var start = DateTimeOffset.UtcNow.AddSeconds(-20);
+            var scene = (MeasuredClinicScene)Field("scene").GetValue(this)!;
+            scene.Reset();
+            scene.Update(start, 1, 0);
+            if (Connected)
+            {
+                scene.Observe(start, new(true, 4, 0, 0, start, null, null, 4));
+                scene.Observe(start.AddSeconds(5), new(true, 4, 20, 0, start, null, null, 4));
+            }
+            Field("phase").SetValue(this, Enum.Parse(Field("phase").FieldType, Paused ? "Ready" : Completed ? "ResumeComplete" : "Load"));
+            Field("armStatus").SetValue(this, Paused ? "Paused" : null);
+            Field("resumeChartStart").SetValue(this, Paused ? null : start.AddSeconds(-30));
+            Field("runStart").SetValue(this, start.AddSeconds(-30));
+            Field("planned").SetValue(this, TimeSpan.FromSeconds(60));
+            Field("samples").SetValue(this, Completed
+                ? new[] { new ServerlessCpuSample(start.AddSeconds(15), 40, 8) } : Array.Empty<ServerlessCpuSample>());
+            typeof(Scale).GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(this, null);
+        }
+    }
+
     private sealed class SignIn(IConfiguration configuration)
         : ServerlessResume(configuration, NullLogger<ServerlessResume>.Instance)
     {
@@ -573,6 +790,8 @@ internal static class ResumeActivityChecks
             state = state with { Running = false, Active = 0 };
             return Task.CompletedTask;
         }
+        public void HoldActive(DateTimeOffset start) =>
+            state = new(true, 4, 30, 0, start, null, null, 4);
     }
 
     private sealed class Telemetry(IConfiguration configuration) : ServerlessSqlTelemetry(configuration)
