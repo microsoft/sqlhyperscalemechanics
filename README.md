@@ -8,6 +8,11 @@ demo runbook.
 
 ## Examples
 
+**Architecture overview:** [Inside Azure SQL Hyperscale - Level 200](architecture/level200/README.md)
+includes an interactive HTML tour, 4K MP4, GIF, editable PowerPoint, and
+full-screen PowerPoint Show. These conceptual animations play offline and
+do not deploy Azure resources.
+
 | Folder | What it shows |
 |---|---|
 | [startandgrowhyperscale](startandgrowhyperscale/README.md) | Start on a Hyperscale serverless database, then bring acquired providers' databases into a Hyperscale elastic pool and query the whole network while storage grows automatically. |
